@@ -11,6 +11,7 @@ An early, read-only frontend for prediction markets on Cookie Chain. It establis
 - A warning when Nightly reports a genesis hash that does not match Cookie Chain.
 - Local domain models and a responsive market-discovery interface.
 - Market detail pages with explicit resolution sources and rules.
+- A local market-draft form with protocol-aware validation and no transaction flow.
 - A conservative [protocol design](docs/protocol-design.md) for a future Anchor implementation.
 
 ## Run locally

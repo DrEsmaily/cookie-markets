@@ -10,6 +10,7 @@ export default function Home() {
     <main>
       <nav>
         <Link className="brand" href="/">cookie<span>markets</span></Link>
+        <Link className="create-link" href="/create">Create market</Link>
         <NetworkStatus />
         <WalletButton />
       </nav>
