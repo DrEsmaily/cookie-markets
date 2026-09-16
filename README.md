@@ -10,6 +10,7 @@ An early, read-only frontend for prediction markets on Cookie Chain. It establis
 - Nightly Wallet Standard connection that only requests account access; it creates no transactions and requests no signatures.
 - A warning when Nightly reports a genesis hash that does not match Cookie Chain.
 - Read-only native COOK balance display for the connected address.
+- Silent reconnection for previously authorized wallets, periodic balance refresh, and explicit disconnect.
 - Local domain models and a responsive market-discovery interface.
 - Market detail pages with explicit resolution sources and rules.
 - A local market-draft form with protocol-aware validation and no transaction flow.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { COOKIE_CHAIN } from "@/lib/cookie-chain-config";
 
 type NightlyAccount = { address: string };
@@ -8,7 +8,8 @@ type NightlyProvider = {
   solana?: {
     genesisHash?: string;
     features?: {
-      "standard:connect"?: { connect: () => Promise<{ accounts: readonly NightlyAccount[] }> };
+      "standard:connect"?: { connect: (input?: { silent?: boolean }) => Promise<{ accounts: readonly NightlyAccount[] }> };
+      "standard:disconnect"?: { disconnect: () => Promise<void> };
     };
   };
 };
@@ -29,45 +30,67 @@ export function WalletButton() {
   const [message, setMessage] = useState<string>();
   const [isConnecting, setIsConnecting] = useState(false);
 
-  async function connect() {
+  const loadBalance = useCallback(async (walletAddress: string) => {
+    const response = await fetch(`/api/balance/${encodeURIComponent(walletAddress)}`, { cache: "no-store" });
+    if (!response.ok) return;
+    const data = await response.json() as { amount: number };
+    setBalance(data.amount);
+  }, []);
+
+  const connect = useCallback(async (silent = false) => {
     const connectFeature = window.nightly?.solana?.features?.["standard:connect"];
     if (!connectFeature) {
-      setMessage("Install Nightly to connect a Cookie Chain wallet.");
+      if (!silent) setMessage("Install Nightly to connect a Cookie Chain wallet.");
       return;
     }
 
-    setIsConnecting(true);
+    if (!silent) setIsConnecting(true);
     setMessage(undefined);
     try {
-      const { accounts } = await connectFeature.connect();
+      const { accounts } = await connectFeature.connect({ silent });
       const account = accounts[0];
       if (!account) {
-        setMessage("No account was shared by Nightly.");
+        if (!silent) setMessage("No account was shared by Nightly.");
         return;
       }
       setAddress(account.address);
-      const balanceResponse = await fetch(`/api/balance/${encodeURIComponent(account.address)}`, { cache: "no-store" });
-      if (balanceResponse.ok) {
-        const balanceData = await balanceResponse.json() as { amount: number };
-        setBalance(balanceData.amount);
-      }
+      await loadBalance(account.address);
       const activeGenesisHash = window.nightly?.solana?.genesisHash;
       if (activeGenesisHash && activeGenesisHash !== COOKIE_CHAIN.genesisHash) {
         setMessage("Nightly is connected, but not to Cookie Chain. Select the Cookie Chain custom network before trading.");
       }
     } catch {
-      setMessage("Wallet connection was cancelled or unavailable.");
+      if (!silent) setMessage("Wallet connection was cancelled or unavailable.");
     } finally {
-      setIsConnecting(false);
+      if (!silent) setIsConnecting(false);
     }
+  }, [loadBalance]);
+
+  useEffect(() => {
+    const silentConnect = window.setTimeout(() => void connect(true), 250);
+    return () => window.clearTimeout(silentConnect);
+  }, [connect]);
+
+  useEffect(() => {
+    if (!address) return;
+    const refresh = window.setInterval(() => void loadBalance(address), 30_000);
+    return () => window.clearInterval(refresh);
+  }, [address, loadBalance]);
+
+  async function disconnect() {
+    await window.nightly?.solana?.features?.["standard:disconnect"]?.disconnect();
+    setAddress(undefined);
+    setBalance(undefined);
+    setMessage(undefined);
   }
 
   return (
     <div className="wallet-control">
       {address && balance !== undefined ? <span className="wallet-balance">{balance.toLocaleString(undefined, { maximumFractionDigits: 4 })} COOK</span> : null}
-      <button className="wallet-button" type="button" onClick={connect} disabled={isConnecting}>
+      <button className="wallet-button" type="button" onClick={() => void connect(false)} disabled={isConnecting}>
         {address ? shortAddress(address) : isConnecting ? "Connecting…" : "Connect Nightly"}
       </button>
+      {address ? <button className="disconnect-button" type="button" onClick={() => void disconnect()} aria-label="Disconnect Nightly" title="Disconnect Nightly">×</button> : null}
       {message ? <p className="wallet-message">{message}</p> : null}
     </div>
   );
