@@ -25,6 +25,11 @@ function shortAddress(address: string) {
   return `${address.slice(0, 4)}…${address.slice(-4)}`;
 }
 
+function formatActivityTime(blockTime: number | null) {
+  if (!blockTime) return "time unavailable";
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(blockTime * 1_000);
+}
+
 export function WalletButton() {
   const [address, setAddress] = useState<string>();
   const [balance, setBalance] = useState<number>();
@@ -104,10 +109,10 @@ export function WalletButton() {
       </button>
       {address ? <button className="disconnect-button" type="button" onClick={() => void disconnect()} aria-label="Disconnect Nightly" title="Disconnect Nightly">×</button> : null}
       {address && isOpen ? <div className="wallet-panel">
-        <div><span>Connected address</span><strong>{shortAddress(address)}</strong></div>
+        <div><span>Connected address</span><a href={`${COOKIE_CHAIN.explorerUrl}/address/${address}`} target="_blank" rel="noreferrer"><strong>{shortAddress(address)} ↗</strong></a></div>
         <div><span>Native balance</span><strong>{balance?.toLocaleString(undefined, { maximumFractionDigits: 4 }) ?? "—"} COOK</strong></div>
         <p>Recent activity</p>
-        {activity.length ? <ul>{activity.map((item) => <li key={item.signature}><span className={item.status}>{item.status}</span><strong>{item.signature.slice(0, 5)}…{item.signature.slice(-5)}</strong><small>slot {item.slot.toLocaleString()}</small></li>)}</ul> : <small>No recent transactions found.</small>}
+        {activity.length ? <ul>{activity.map((item) => <li key={item.signature}><span className={item.status}>{item.status}</span><a href={`${COOKIE_CHAIN.explorerUrl}/tx/${item.signature}`} target="_blank" rel="noreferrer"><strong>{item.signature.slice(0, 5)}…{item.signature.slice(-5)} ↗</strong></a><small>{formatActivityTime(item.blockTime)} · slot {item.slot.toLocaleString()}</small></li>)}</ul> : <small>No recent transactions found.</small>}
       </div> : null}
       {message ? <p className="wallet-message">{message}</p> : null}
     </div>

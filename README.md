@@ -12,6 +12,7 @@ An early, read-only frontend for prediction markets on Cookie Chain. It establis
 - Read-only native COOK balance display for the connected address.
 - Silent reconnection for previously authorized wallets, periodic balance refresh, and explicit disconnect.
 - A read-only wallet panel with recent Cookie Chain transaction signatures and status.
+- Direct Cookiescan links and local timestamps for wallet activity.
 - Local domain models and a responsive market-discovery interface.
 - Market detail pages with explicit resolution sources and rules.
 - A local market-draft form with protocol-aware validation and no transaction flow.
