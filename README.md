@@ -17,7 +17,7 @@ A prediction-market application for Cookie Chain, with a Next.js frontend and an
 - Market detail pages with explicit resolution sources and rules.
 - A local market-draft form with protocol-aware validation and no transaction flow.
 - A conservative [protocol design](docs/protocol-design.md).
-- An Anchor program with protocol initialization, market creation, and market opening.
+- An Anchor program with protocol initialization, market creation, market opening, collateral splitting, and position merging.
 - On-chain schedule, hash, fee, signer, PDA, and state-transition validation.
 
 ## Run locally
@@ -41,7 +41,9 @@ The configuration is based on the current [Cookie Chain developer docs](https://
 
 ## On-chain program
 
-The first contract milestone lives in `programs/cookie_markets`. Run its unit tests with:
+The contract lives in `programs/cookie_markets`. Its market PDA controls a collateral vault and the YES/NO share mints. Splitting one collateral unit produces one unit of each share; merging equal shares returns the collateral while the market remains unresolved.
+
+Run its unit tests with:
 
 ```bash
 cargo test --workspace
@@ -51,6 +53,6 @@ The checked-in program ID is a deterministic development placeholder, not a depl
 
 ## Next protocol milestone
 
-Add token custody and complete-set minting after confirming the canonical wrapped COOK mint and supported token program on Cookie Chain.
+Add market locking, resolution proposals, challenge handling, finalization, and redemption. Deployment still waits for confirmation of the canonical wrapped COOK mint on Cookie Chain.
 
 No wallet secrets, private keys, or deployment configuration are included in this repository.
