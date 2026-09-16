@@ -8,6 +8,8 @@ An early, read-only frontend for prediction markets on Cookie Chain. It establis
 - Cookie Chain RPC, WebSocket, explorer and verified genesis hash configuration.
 - Nightly Wallet Standard connection that only requests account access; it creates no transactions and requests no signatures.
 - Local domain models and a responsive market-discovery interface.
+- Market detail pages with explicit resolution sources and rules.
+- A conservative [protocol design](docs/protocol-design.md) for a future Anchor implementation.
 
 ## Run locally
 

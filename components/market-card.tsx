@@ -1,9 +1,10 @@
 import type { PredictionMarket } from "@/lib/markets";
 import { formatCook } from "@/lib/markets";
+import Link from "next/link";
 
 export function MarketCard({ market }: { market: PredictionMarket }) {
   return (
-    <article className="market-card">
+    <Link className="market-card" href={`/markets/${market.id}`}>
       <div className="market-meta">
         <span>{market.category}</span>
         <span>Closes {market.closesAt}</span>
@@ -17,6 +18,6 @@ export function MarketCard({ market }: { market: PredictionMarket }) {
         <span>{formatCook(market.volumeCook)} COOK volume</span>
         <span className="status">Open</span>
       </div>
-    </article>
+    </Link>
   );
 }
