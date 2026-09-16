@@ -1,6 +1,6 @@
 # CookieMarkets
 
-An early, read-only frontend for prediction markets on Cookie Chain. It establishes the product language, Cookie Chain configuration, and a Nightly wallet connection before any market program or signing flow is introduced.
+A prediction-market application for Cookie Chain, with a Next.js frontend and an Anchor on-chain program.
 
 ## Included today
 
@@ -16,7 +16,9 @@ An early, read-only frontend for prediction markets on Cookie Chain. It establis
 - Local domain models and a responsive market-discovery interface.
 - Market detail pages with explicit resolution sources and rules.
 - A local market-draft form with protocol-aware validation and no transaction flow.
-- A conservative [protocol design](docs/protocol-design.md) for a future Anchor implementation.
+- A conservative [protocol design](docs/protocol-design.md).
+- An Anchor program with protocol initialization, market creation, and market opening.
+- On-chain schedule, hash, fee, signer, PDA, and state-transition validation.
 
 ## Run locally
 
@@ -37,8 +39,18 @@ In Nightly, add a custom SVM network with:
 
 The configuration is based on the current [Cookie Chain developer docs](https://docs.cookiechain.wtf/developer-guide) and [Nightly network-change docs](https://docs.nightly.app/docs/solana/solana/change_network/). Verify network details in Nightly before approving any future request.
 
-## Next product decision
+## On-chain program
 
-Before market trading can be implemented, decide the on-chain market protocol: deploy a purpose-built Anchor program or integrate an existing audited protocol that is confirmed to be deployed on Cookie Chain. That choice determines market creation, oracle/resolution rules, collateral custody, and transaction flows.
+The first contract milestone lives in `programs/cookie_markets`. Run its unit tests with:
 
-No program IDs, wallet secrets, private keys, or deployment configuration are included in this repository.
+```bash
+cargo test --workspace
+```
+
+The checked-in program ID is a deterministic development placeholder, not a deployed address. Building and testing this milestone does not require a wallet, keypair, signature, or private credential.
+
+## Next protocol milestone
+
+Add token custody and complete-set minting after confirming the canonical wrapped COOK mint and supported token program on Cookie Chain.
+
+No wallet secrets, private keys, or deployment configuration are included in this repository.
