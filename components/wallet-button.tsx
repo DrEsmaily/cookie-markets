@@ -25,6 +25,7 @@ function shortAddress(address: string) {
 
 export function WalletButton() {
   const [address, setAddress] = useState<string>();
+  const [balance, setBalance] = useState<number>();
   const [message, setMessage] = useState<string>();
   const [isConnecting, setIsConnecting] = useState(false);
 
@@ -45,6 +46,11 @@ export function WalletButton() {
         return;
       }
       setAddress(account.address);
+      const balanceResponse = await fetch(`/api/balance/${encodeURIComponent(account.address)}`, { cache: "no-store" });
+      if (balanceResponse.ok) {
+        const balanceData = await balanceResponse.json() as { amount: number };
+        setBalance(balanceData.amount);
+      }
       const activeGenesisHash = window.nightly?.solana?.genesisHash;
       if (activeGenesisHash && activeGenesisHash !== COOKIE_CHAIN.genesisHash) {
         setMessage("Nightly is connected, but not to Cookie Chain. Select the Cookie Chain custom network before trading.");
@@ -58,6 +64,7 @@ export function WalletButton() {
 
   return (
     <div className="wallet-control">
+      {address && balance !== undefined ? <span className="wallet-balance">{balance.toLocaleString(undefined, { maximumFractionDigits: 4 })} COOK</span> : null}
       <button className="wallet-button" type="button" onClick={connect} disabled={isConnecting}>
         {address ? shortAddress(address) : isConnecting ? "Connecting…" : "Connect Nightly"}
       </button>
