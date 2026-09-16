@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { MarketCard } from "@/components/market-card";
 import { WalletButton } from "@/components/wallet-button";
-import { COOKIE_CHAIN } from "@/lib/cookie-chain";
+import { NetworkStatus } from "@/components/network-status";
+import { COOKIE_CHAIN } from "@/lib/cookie-chain-config";
 import { featuredMarkets } from "@/lib/markets";
 
 export default function Home() {
@@ -9,7 +10,7 @@ export default function Home() {
     <main>
       <nav>
         <Link className="brand" href="/">cookie<span>markets</span></Link>
-        <div className="network-pill"><i /> {COOKIE_CHAIN.name}</div>
+        <NetworkStatus />
         <WalletButton />
       </nav>
 

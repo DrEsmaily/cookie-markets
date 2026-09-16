@@ -6,7 +6,9 @@ An early, read-only frontend for prediction markets on Cookie Chain. It establis
 
 - Next.js App Router + TypeScript frontend.
 - Cookie Chain RPC, WebSocket, explorer and verified genesis hash configuration.
+- Read-only live RPC health and slot reporting.
 - Nightly Wallet Standard connection that only requests account access; it creates no transactions and requests no signatures.
+- A warning when Nightly reports a genesis hash that does not match Cookie Chain.
 - Local domain models and a responsive market-discovery interface.
 - Market detail pages with explicit resolution sources and rules.
 - A conservative [protocol design](docs/protocol-design.md) for a future Anchor implementation.

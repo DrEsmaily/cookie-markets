@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { COOKIE_CHAIN } from "@/lib/cookie-chain-config";
 
 type NightlyAccount = { address: string };
 type NightlyProvider = {
@@ -44,6 +45,10 @@ export function WalletButton() {
         return;
       }
       setAddress(account.address);
+      const activeGenesisHash = window.nightly?.solana?.genesisHash;
+      if (activeGenesisHash && activeGenesisHash !== COOKIE_CHAIN.genesisHash) {
+        setMessage("Nightly is connected, but not to Cookie Chain. Select the Cookie Chain custom network before trading.");
+      }
     } catch {
       setMessage("Wallet connection was cancelled or unavailable.");
     } finally {
