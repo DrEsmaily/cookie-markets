@@ -1,6 +1,8 @@
 const assert = require("node:assert/strict");
 const { createHash } = require("node:crypto");
 const { Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction, VersionedTransaction, sendAndConfirmTransaction } = require("@solana/web3.js");
+const { NATIVE_MINT, buildUnwrapNativeInstruction, deriveAssociatedTokenAddress } = require("../.test-build/token-instructions.js");
+const { buildPositionTransactionInstructions, buildWrapNativeInstructions } = require("../.test-build/position-transactions.js");
 
 const program = new PublicKey("US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx");
 const tokenProgram = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
@@ -143,6 +145,39 @@ async function testSettlement(config, collateralMint) {
   console.log("Settlement passed: YES, NO, challenged INVALID, exact refunds, losing-share rejection, challenge deadlines, unauthorized resolution, and double-redemption rejection.");
 }
 
+async function testClientPositions(config, collateralMint) {
+  const nonce = integer(5);
+  const market = pda("market", admin.publicKey.toBuffer(), nonce);
+  const yesMint = pda("yes_mint", market.toBuffer());
+  const noMint = pda("no_mint", market.toBuffer());
+  const vault = pda("vault", market.toBuffer());
+  const closesAt = await chainTime() + 3600;
+  await send([instruction("create_market", [meta(config), meta(market, true), meta(collateralMint), meta(yesMint, true), meta(noMint, true), meta(vault, true), meta(admin.publicKey, true, true), meta(tokenProgram), meta(SystemProgram.programId)], nonce, Buffer.alloc(32, 5), Buffer.alloc(32, 6), integer(closesAt), integer(closesAt))]);
+  await send([instruction("open_market", [meta(market, true), meta(admin.publicKey, false, true)])]);
+  const params = { creator: admin.publicKey, marketNonce: 5n, collateralMint, user: admin.publicKey, amount: 100n, action: "split" };
+  const deposit = await buildPositionTransactionInstructions(params);
+  await send(deposit.instructions.slice(0, 3));
+  await send([new TransactionInstruction({ programId: tokenProgram, keys: [meta(collateralMint, true), meta(deposit.userCollateral, true), meta(admin.publicKey, false, true)], data: Buffer.concat([Buffer.from([7]), integer(100)]) })]);
+  await send(deposit.instructions);
+  for (const account of [deposit.userYes, deposit.userNo, vault]) assert.equal((await connection.getTokenAccountBalance(account)).value.amount, "100");
+  const withdrawal = await buildPositionTransactionInstructions({ ...params, action: "merge" });
+  await send(withdrawal.instructions);
+  assert.equal((await connection.getTokenAccountBalance(deposit.userCollateral)).value.amount, "100");
+  for (const account of [deposit.userYes, deposit.userNo, vault]) assert.equal((await connection.getTokenAccountBalance(account)).value.amount, "0");
+  console.log("Frontend transaction builders passed on validator: idempotent ATA setup, exact collateral deposit, YES/NO issuance, and complete-set withdrawal.");
+}
+
+async function testNativeWrapping() {
+  const startingBalance = await connection.getBalance(admin.publicKey);
+  const account = deriveAssociatedTokenAddress(NATIVE_MINT, admin.publicKey);
+  await send(buildWrapNativeInstructions(admin.publicKey, 100000000n));
+  assert.equal((await connection.getTokenAccountBalance(account)).value.amount, "100000000");
+  await send([buildUnwrapNativeInstruction(admin.publicKey)]);
+  assert.equal(await connection.getAccountInfo(account), null);
+  assert.ok(await connection.getBalance(admin.publicKey) >= startingBalance - 100000, "Unwrapping did not return native collateral and rent minus test transaction fees");
+  console.log("Native wrapping passed: frontend ATA/transfer/sync instructions, exact wrapped balance, explicit unwrap, and rent return.");
+}
+
 async function main() {
   assert.equal((await connection.getAccountInfo(program)).executable, true);
   for (const signer of [admin, outsider]) {
@@ -210,6 +245,8 @@ async function main() {
   console.log("Collateral custody passed: split, partial merge, full refund, zero amount, insufficient funds, and unchanged balances after rejected instructions.");
   console.log("Local-validator transactions passed: initialization, mint/vault creation, market opening, unauthorized signer, repeated opening, premature locking.");
   await testSettlement(config, collateral.publicKey);
+  await testClientPositions(config, collateral.publicKey);
+  await testNativeWrapping();
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; });
