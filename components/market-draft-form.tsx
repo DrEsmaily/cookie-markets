@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
 import {
   buildCreateMarketInstruction,
@@ -19,6 +19,23 @@ export function MarketDraftForm() {
   const [isPreparing, setIsPreparing] = useState(false);
   const [prepareError, setPrepareError] = useState<string>();
   const [preview, setPreview] = useState<InstructionPreview>();
+  const [collateralMessage, setCollateralMessage] = useState("Resolving approved collateral…");
+
+  useEffect(() => {
+    let cancelled = false;
+    void resolveCollateral().then((result) => {
+      if (cancelled) return;
+      if (result.mint) {
+        setCollateralMint(result.mint);
+        setCollateralMessage(result.message);
+      } else {
+        setCollateralMessage(result.message);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function update(field: keyof MarketDraft, value: string) {
     setDraft((current) => ({ ...current, [field]: value }));
@@ -91,7 +108,7 @@ export function MarketDraftForm() {
         <Field label="Trading closes" error={errors.closesAt}><input type="datetime-local" value={draft.closesAt} onChange={(event) => update("closesAt", event.target.value)} /></Field>
         <Field label="Earliest resolution" error={errors.resolvesAt}><input type="datetime-local" value={draft.resolvesAt} onChange={(event) => update("resolvesAt", event.target.value)} /></Field>
       </div>
-      <Field label="Collateral token mint"><input value={collateralMint} onChange={(event) => { setCollateralMint(event.target.value); setPreview(undefined); }} placeholder="Verified wrapped COOK mint address" /></Field>
+      <Field label="Collateral token mint"><input value={collateralMint} readOnly placeholder="Resolving wrapped COOK…" /><small className="field-note">{collateralMessage}</small></Field>
       <button className="primary-action form-action" type="submit">Review draft</button>
       {isReady ? <div className="draft-ready"><strong>Draft passes the initial checks.</strong><p>Prepare deterministic accounts and unsigned instructions after entering a verified collateral mint.</p><button type="button" className="secondary-action" disabled={isPreparing || !collateralMint.trim()} onClick={() => void prepareInstructions()}>{isPreparing ? "Preparing…" : "Prepare unsigned instructions"}</button></div> : null}
       {prepareError ? <p className="form-error">{prepareError}</p> : null}
@@ -128,6 +145,25 @@ function timestampSeconds(value: string): bigint {
 
 function toBase64(value: Uint8Array): string {
   return btoa(Array.from(value, (byte) => String.fromCharCode(byte)).join(""));
+}
+
+async function resolveCollateral(): Promise<{ mint?: string; message: string }> {
+  try {
+    const protocolResponse = await fetch("/api/protocol", { cache: "no-store" });
+    const protocol = await protocolResponse.json() as { deployed?: boolean; collateralMint?: string };
+    if (protocol.deployed && protocol.collateralMint) {
+      return { mint: protocol.collateralMint, message: "Loaded from the deployed protocol config." };
+    }
+
+    const collateralResponse = await fetch("/api/collateral", { cache: "no-store" });
+    const collateral = await collateralResponse.json() as { mint?: string; error?: string };
+    if (!collateralResponse.ok || !collateral.mint) {
+      return { message: collateral.error ?? "Wrapped COOK could not be resolved." };
+    }
+    return { mint: collateral.mint, message: "Resolved from the Cookiescan canonical asset registry." };
+  } catch {
+    return { message: "Wrapped COOK could not be resolved." };
+  }
 }
 
 function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
