@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const { createHash } = require("node:crypto");
-const { Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction, sendAndConfirmTransaction } = require("@solana/web3.js");
+const { Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction, VersionedTransaction, sendAndConfirmTransaction } = require("@solana/web3.js");
 
 const program = new PublicKey("US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx");
 const tokenProgram = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
@@ -32,11 +32,18 @@ async function send(instructions, signers = [admin]) {
 }
 
 async function expectProgramError(instructions, signers, expected) {
-  await assert.rejects(send(instructions, signers), (error) => {
-    const output = `${error.message}\n${(error.logs ?? []).join("\n")}`;
-    assert.ok(output.includes(expected), `Expected ${expected}, received ${output}`);
-    return true;
+  const transaction = new Transaction().add(...instructions);
+  transaction.feePayer = signers[0].publicKey;
+  transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+  const signed = new VersionedTransaction(transaction.compileMessage());
+  signed.sign(signers);
+  const { value } = await connection.simulateTransaction(signed, {
+    sigVerify: true,
+    commitment: "confirmed",
   });
+  assert.ok(value.err, `Expected ${expected}, but simulation succeeded`);
+  const output = (value.logs ?? []).join("\n");
+  assert.ok(output.includes(expected), `Expected ${expected}, received ${output}`);
 }
 
 async function main() {
