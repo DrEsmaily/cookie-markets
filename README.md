@@ -21,6 +21,7 @@ A prediction-market application for Cookie Chain, with a Next.js frontend and an
 - On-chain schedule, hash, fee, signer, PDA, and state-transition validation.
 - Program-level enforcement of the single approved collateral mint.
 - Read-only Cookie Chain protocol discovery with config owner and discriminator verification.
+- Dynamic wrapped COOK discovery through Cookiescan's canonical asset registry.
 - Frontend PDA derivation and unsigned instruction builders for every current protocol instruction.
 
 ## Run locally

@@ -155,12 +155,12 @@ async function resolveCollateral(): Promise<{ mint?: string; message: string }> 
       return { mint: protocol.collateralMint, message: "Loaded from the deployed protocol config." };
     }
 
-    const collateralResponse = await fetch("/api/collateral", { cache: "no-store" });
-    const collateral = await collateralResponse.json() as { mint?: string; error?: string };
-    if (!collateralResponse.ok || !collateral.mint) {
-      return { message: collateral.error ?? "Wrapped COOK could not be resolved." };
+    const networkResponse = await fetch("/api/network", { cache: "no-store" });
+    const network = await networkResponse.json() as { wrappedCookMint?: string; error?: string };
+    if (!networkResponse.ok || !network.wrappedCookMint) {
+      return { message: network.error ?? "Wrapped COOK could not be resolved." };
     }
-    return { mint: collateral.mint, message: "Resolved from the Cookiescan canonical asset registry." };
+    return { mint: network.wrappedCookMint, message: "Resolved from the Cookiescan canonical asset registry." };
   } catch {
     return { message: "Wrapped COOK could not be resolved." };
   }
