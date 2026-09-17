@@ -19,6 +19,7 @@ A prediction-market application for Cookie Chain, with a Next.js frontend and an
 - A conservative [protocol design](docs/protocol-design.md).
 - An Anchor program covering market creation, collateralized shares, resolution challenges, finalization, and redemption.
 - On-chain schedule, hash, fee, signer, PDA, and state-transition validation.
+- Program-level enforcement of the single approved collateral mint.
 - Frontend PDA derivation and unsigned instruction builders for every current protocol instruction.
 
 ## Run locally

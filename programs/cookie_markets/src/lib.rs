@@ -34,6 +34,7 @@ pub mod cookie_markets {
         config.admin = ctx.accounts.admin.key();
         config.fee_recipient = fee_recipient;
         config.resolver = resolver;
+        config.collateral_mint = ctx.accounts.collateral_mint.key();
         config.fee_bps = fee_bps;
         config.challenge_period = challenge_period;
         config.bump = ctx.bumps.config;
@@ -41,6 +42,7 @@ pub mod cookie_markets {
         emit!(ProtocolInitialized {
             admin: config.admin,
             resolver,
+            collateral_mint: config.collateral_mint,
             fee_bps,
         });
         Ok(())
@@ -466,6 +468,7 @@ pub mod cookie_markets {
 pub struct InitializeProtocol<'info> {
     #[account(init, payer = admin, space = ProtocolConfig::SPACE, seeds = [CONFIG_SEED], bump)]
     pub config: Account<'info, ProtocolConfig>,
+    pub collateral_mint: Account<'info, Mint>,
     #[account(mut)]
     pub admin: Signer<'info>,
     pub system_program: Program<'info, System>,
@@ -484,6 +487,7 @@ pub struct CreateMarket<'info> {
         bump
     )]
     pub market: Account<'info, Market>,
+    #[account(address = config.collateral_mint @ CookieMarketsError::UnsupportedCollateral)]
     pub collateral_mint: Account<'info, Mint>,
     #[account(
         init,
@@ -689,13 +693,14 @@ pub struct ProtocolConfig {
     pub admin: Pubkey,
     pub fee_recipient: Pubkey,
     pub resolver: Pubkey,
+    pub collateral_mint: Pubkey,
     pub fee_bps: u16,
     pub challenge_period: i64,
     pub bump: u8,
 }
 
 impl ProtocolConfig {
-    pub const SPACE: usize = 8 + 32 + 32 + 32 + 2 + 8 + 1;
+    pub const SPACE: usize = 8 + 32 + 32 + 32 + 32 + 2 + 8 + 1;
 }
 
 #[account]
@@ -793,6 +798,7 @@ pub enum PositionSide {
 pub struct ProtocolInitialized {
     pub admin: Pubkey,
     pub resolver: Pubkey,
+    pub collateral_mint: Pubkey,
     pub fee_bps: u16,
 }
 
@@ -903,6 +909,8 @@ pub enum CookieMarketsError {
     LosingPosition,
     #[msg("Redemption amount is too small")]
     PayoutRoundsToZero,
+    #[msg("Collateral mint is not approved by the protocol")]
+    UnsupportedCollateral,
 }
 
 #[cfg(test)]

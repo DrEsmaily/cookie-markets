@@ -15,7 +15,7 @@ This document defines the first implementation target. It is deliberately conser
 
 | Account | Seed | Purpose |
 | --- | --- | --- |
-| Protocol config | `config` | Admin, fee recipient, collateral allowlist authority, global limits |
+| Protocol config | `config` | Admin, fee recipient, resolver, approved collateral mint, global limits |
 | Market | `market`, creator, market nonce | Times, hashes, state, resolver, outcome mints, vault |
 | Collateral vault | `vault`, market | Holds collateral backing complete sets |
 | Resolution proposal | `resolution`, market | Proposed outcome, evidence hash, proposer, challenge deadline |
@@ -61,7 +61,7 @@ The resolver must follow the immutable rules hash. `Invalid` is used only when t
 ## Deferred decisions
 
 - Exact resolver multisig and signer threshold.
-- Allowed collateral mint for the first deployment.
+- Canonical wrapped COOK mint for the first deployment.
 - Whether v1 includes an AMM or starts with complete-set minting plus an external order book.
 - Fee rates and fee split. Current frontend constants are placeholders, not deployed economics.
 - Program upgrade authority and eventual immutability policy.

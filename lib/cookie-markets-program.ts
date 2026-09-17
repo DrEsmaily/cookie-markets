@@ -58,6 +58,7 @@ export async function buildInitializeProtocolInstruction(params: {
   admin: PublicKey;
   feeRecipient: PublicKey;
   resolver: PublicKey;
+  collateralMint: PublicKey;
   feeBps: number;
   challengePeriod: bigint;
 }): Promise<TransactionInstruction> {
@@ -75,6 +76,7 @@ export async function buildInitializeProtocolInstruction(params: {
     ),
     [
       { pubkey: deriveConfigAddress(), isSigner: false, isWritable: true },
+      { pubkey: params.collateralMint, isSigner: false, isWritable: false },
       { pubkey: params.admin, isSigner: true, isWritable: true },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
