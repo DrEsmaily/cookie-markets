@@ -10,6 +10,7 @@ const MARKET_SEED: &[u8] = b"market";
 const YES_MINT_SEED: &[u8] = b"yes_mint";
 const NO_MINT_SEED: &[u8] = b"no_mint";
 const VAULT_SEED: &[u8] = b"vault";
+const RESOLUTION_SEED: &[u8] = b"resolution";
 const MAX_FEE_BPS: u16 = 1_000;
 
 #[program]
@@ -250,6 +251,215 @@ pub mod cookie_markets {
         });
         Ok(())
     }
+
+    pub fn lock_market(ctx: Context<LockMarket>) -> Result<()> {
+        let market = &mut ctx.accounts.market;
+        require!(
+            market.status == MarketStatus::Open,
+            CookieMarketsError::InvalidMarketState
+        );
+        require!(
+            Clock::get()?.unix_timestamp >= market.closes_at,
+            CookieMarketsError::MarketStillOpen
+        );
+
+        market.status = MarketStatus::Locked;
+        emit!(MarketLocked {
+            market: market.key()
+        });
+        Ok(())
+    }
+
+    pub fn propose_resolution(
+        ctx: Context<ProposeResolution>,
+        outcome: MarketOutcome,
+        evidence_hash: [u8; 32],
+    ) -> Result<()> {
+        require!(
+            outcome.is_final(),
+            CookieMarketsError::InvalidResolutionOutcome
+        );
+        require!(
+            evidence_hash != [0; 32],
+            CookieMarketsError::EmptyEvidenceHash
+        );
+
+        let now = Clock::get()?.unix_timestamp;
+        let market = &mut ctx.accounts.market;
+        require!(
+            market.status == MarketStatus::Locked,
+            CookieMarketsError::InvalidMarketState
+        );
+        require!(
+            now >= market.resolve_after,
+            CookieMarketsError::ResolutionTooEarly
+        );
+
+        let proposal = &mut ctx.accounts.resolution;
+        proposal.market = market.key();
+        proposal.proposed_by = ctx.accounts.resolver.key();
+        proposal.outcome = outcome;
+        proposal.evidence_hash = evidence_hash;
+        proposal.proposed_at = now;
+        proposal.challenge_deadline = now
+            .checked_add(ctx.accounts.config.challenge_period)
+            .ok_or(CookieMarketsError::ArithmeticOverflow)?;
+        proposal.challenged = false;
+        proposal.bump = ctx.bumps.resolution;
+        market.status = MarketStatus::Proposed;
+
+        emit!(ResolutionProposed {
+            market: market.key(),
+            outcome,
+            challenge_deadline: proposal.challenge_deadline,
+        });
+        Ok(())
+    }
+
+    pub fn challenge_resolution(ctx: Context<ChallengeResolution>) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        let proposal = &mut ctx.accounts.resolution;
+        require!(
+            now < proposal.challenge_deadline,
+            CookieMarketsError::ChallengeWindowClosed
+        );
+        require!(!proposal.challenged, CookieMarketsError::AlreadyChallenged);
+
+        proposal.challenged = true;
+        emit!(ResolutionChallenged {
+            market: ctx.accounts.market.key(),
+            challenger: ctx.accounts.challenger.key(),
+        });
+        Ok(())
+    }
+
+    pub fn resolve_challenge(
+        ctx: Context<ResolveChallenge>,
+        outcome: MarketOutcome,
+        evidence_hash: [u8; 32],
+    ) -> Result<()> {
+        require!(
+            outcome.is_final(),
+            CookieMarketsError::InvalidResolutionOutcome
+        );
+        require!(
+            evidence_hash != [0; 32],
+            CookieMarketsError::EmptyEvidenceHash
+        );
+        require!(
+            ctx.accounts.resolution.challenged,
+            CookieMarketsError::ResolutionNotChallenged
+        );
+
+        let now = Clock::get()?.unix_timestamp;
+        let proposal = &mut ctx.accounts.resolution;
+        proposal.outcome = outcome;
+        proposal.evidence_hash = evidence_hash;
+        proposal.proposed_by = ctx.accounts.resolver.key();
+        proposal.proposed_at = now;
+        proposal.challenge_deadline = now
+            .checked_add(ctx.accounts.config.challenge_period)
+            .ok_or(CookieMarketsError::ArithmeticOverflow)?;
+        proposal.challenged = false;
+
+        emit!(ResolutionProposed {
+            market: ctx.accounts.market.key(),
+            outcome,
+            challenge_deadline: proposal.challenge_deadline,
+        });
+        Ok(())
+    }
+
+    pub fn finalize_resolution(ctx: Context<FinalizeResolution>) -> Result<()> {
+        let proposal = &ctx.accounts.resolution;
+        require!(
+            !proposal.challenged,
+            CookieMarketsError::ResolutionChallenged
+        );
+        require!(
+            Clock::get()?.unix_timestamp >= proposal.challenge_deadline,
+            CookieMarketsError::ChallengeWindowOpen
+        );
+
+        let market = &mut ctx.accounts.market;
+        market.outcome = proposal.outcome;
+        market.status = MarketStatus::Resolved;
+        emit!(ResolutionFinalized {
+            market: market.key(),
+            outcome: market.outcome,
+        });
+        Ok(())
+    }
+
+    pub fn redeem(ctx: Context<Redeem>, side: PositionSide, amount: u64) -> Result<()> {
+        require!(amount > 0, CookieMarketsError::ZeroAmount);
+        let market = &ctx.accounts.market;
+        require!(
+            market.status == MarketStatus::Resolved,
+            CookieMarketsError::InvalidMarketState
+        );
+
+        let payout = market.payout_for(side, amount)?;
+        let (mint, position) = match side {
+            PositionSide::Yes => (
+                ctx.accounts.yes_mint.to_account_info(),
+                ctx.accounts.user_yes.to_account_info(),
+            ),
+            PositionSide::No => (
+                ctx.accounts.no_mint.to_account_info(),
+                ctx.accounts.user_no.to_account_info(),
+            ),
+        };
+
+        token::burn(
+            CpiContext::new(
+                ctx.accounts.token_program.key(),
+                Burn {
+                    mint,
+                    from: position,
+                    authority: ctx.accounts.user.to_account_info(),
+                },
+            ),
+            amount,
+        )?;
+
+        let nonce_bytes = market.nonce.to_le_bytes();
+        let signer_seeds: &[&[u8]] = &[
+            MARKET_SEED,
+            market.creator.as_ref(),
+            &nonce_bytes,
+            &[market.bump],
+        ];
+        token::transfer_checked(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.key(),
+                TransferChecked {
+                    from: ctx.accounts.vault.to_account_info(),
+                    mint: ctx.accounts.collateral_mint.to_account_info(),
+                    to: ctx.accounts.user_collateral.to_account_info(),
+                    authority: market.to_account_info(),
+                },
+                &[signer_seeds],
+            ),
+            payout,
+            ctx.accounts.collateral_mint.decimals,
+        )?;
+
+        let market = &mut ctx.accounts.market;
+        market.outstanding_sets = market
+            .outstanding_sets
+            .checked_sub(payout)
+            .ok_or(CookieMarketsError::InsufficientOutstandingSets)?;
+
+        emit!(PositionRedeemed {
+            market: market.key(),
+            user: ctx.accounts.user.key(),
+            side,
+            shares_burned: amount,
+            collateral_paid: payout,
+        });
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -372,6 +582,108 @@ pub struct MergePositions<'info> {
     pub token_program: Program<'info, Token>,
 }
 
+#[derive(Accounts)]
+pub struct LockMarket<'info> {
+    #[account(
+        mut,
+        seeds = [MARKET_SEED, market.creator.as_ref(), &market.nonce.to_le_bytes()],
+        bump = market.bump
+    )]
+    pub market: Account<'info, Market>,
+}
+
+#[derive(Accounts)]
+pub struct ProposeResolution<'info> {
+    #[account(seeds = [CONFIG_SEED], bump = config.bump, has_one = resolver)]
+    pub config: Account<'info, ProtocolConfig>,
+    #[account(
+        mut,
+        has_one = resolver,
+        seeds = [MARKET_SEED, market.creator.as_ref(), &market.nonce.to_le_bytes()],
+        bump = market.bump
+    )]
+    pub market: Account<'info, Market>,
+    #[account(
+        init,
+        payer = resolver,
+        space = ResolutionProposal::SPACE,
+        seeds = [RESOLUTION_SEED, market.key().as_ref()],
+        bump
+    )]
+    pub resolution: Account<'info, ResolutionProposal>,
+    #[account(mut)]
+    pub resolver: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct ChallengeResolution<'info> {
+    #[account(
+        seeds = [MARKET_SEED, market.creator.as_ref(), &market.nonce.to_le_bytes()],
+        bump = market.bump,
+        constraint = market.status == MarketStatus::Proposed @ CookieMarketsError::InvalidMarketState
+    )]
+    pub market: Account<'info, Market>,
+    #[account(mut, seeds = [RESOLUTION_SEED, market.key().as_ref()], bump = resolution.bump)]
+    pub resolution: Account<'info, ResolutionProposal>,
+    pub challenger: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct ResolveChallenge<'info> {
+    #[account(seeds = [CONFIG_SEED], bump = config.bump, has_one = resolver)]
+    pub config: Account<'info, ProtocolConfig>,
+    #[account(
+        has_one = resolver,
+        seeds = [MARKET_SEED, market.creator.as_ref(), &market.nonce.to_le_bytes()],
+        bump = market.bump,
+        constraint = market.status == MarketStatus::Proposed @ CookieMarketsError::InvalidMarketState
+    )]
+    pub market: Account<'info, Market>,
+    #[account(mut, seeds = [RESOLUTION_SEED, market.key().as_ref()], bump = resolution.bump)]
+    pub resolution: Account<'info, ResolutionProposal>,
+    pub resolver: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct FinalizeResolution<'info> {
+    #[account(
+        mut,
+        seeds = [MARKET_SEED, market.creator.as_ref(), &market.nonce.to_le_bytes()],
+        bump = market.bump,
+        constraint = market.status == MarketStatus::Proposed @ CookieMarketsError::InvalidMarketState
+    )]
+    pub market: Account<'info, Market>,
+    #[account(seeds = [RESOLUTION_SEED, market.key().as_ref()], bump = resolution.bump, has_one = market)]
+    pub resolution: Account<'info, ResolutionProposal>,
+}
+
+#[derive(Accounts)]
+pub struct Redeem<'info> {
+    #[account(
+        mut,
+        seeds = [MARKET_SEED, market.creator.as_ref(), &market.nonce.to_le_bytes()],
+        bump = market.bump
+    )]
+    pub market: Account<'info, Market>,
+    #[account(address = market.collateral_mint)]
+    pub collateral_mint: Account<'info, Mint>,
+    #[account(mut, address = market.yes_mint)]
+    pub yes_mint: Account<'info, Mint>,
+    #[account(mut, address = market.no_mint)]
+    pub no_mint: Account<'info, Mint>,
+    #[account(mut, address = market.vault, token::mint = collateral_mint, token::authority = market)]
+    pub vault: Account<'info, TokenAccount>,
+    #[account(mut, token::mint = collateral_mint, token::authority = user)]
+    pub user_collateral: Account<'info, TokenAccount>,
+    #[account(mut, token::mint = yes_mint, token::authority = user)]
+    pub user_yes: Account<'info, TokenAccount>,
+    #[account(mut, token::mint = no_mint, token::authority = user)]
+    pub user_no: Account<'info, TokenAccount>,
+    pub user: Signer<'info>,
+    pub token_program: Program<'info, Token>,
+}
+
 #[account]
 pub struct ProtocolConfig {
     pub admin: Pubkey,
@@ -418,6 +730,34 @@ impl Market {
         );
         Ok(())
     }
+
+    fn payout_for(&self, side: PositionSide, amount: u64) -> Result<u64> {
+        let payout = match (self.outcome, side) {
+            (MarketOutcome::Yes, PositionSide::Yes) | (MarketOutcome::No, PositionSide::No) => {
+                amount
+            }
+            (MarketOutcome::Invalid, _) => amount / 2,
+            _ => return err!(CookieMarketsError::LosingPosition),
+        };
+        require!(payout > 0, CookieMarketsError::PayoutRoundsToZero);
+        Ok(payout)
+    }
+}
+
+#[account]
+pub struct ResolutionProposal {
+    pub market: Pubkey,
+    pub proposed_by: Pubkey,
+    pub outcome: MarketOutcome,
+    pub evidence_hash: [u8; 32],
+    pub proposed_at: i64,
+    pub challenge_deadline: i64,
+    pub challenged: bool,
+    pub bump: u8,
+}
+
+impl ResolutionProposal {
+    pub const SPACE: usize = 8 + 32 + 32 + 1 + 32 + 8 + 8 + 1 + 1;
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
@@ -435,6 +775,18 @@ pub enum MarketOutcome {
     Yes,
     No,
     Invalid,
+}
+
+impl MarketOutcome {
+    fn is_final(self) -> bool {
+        matches!(self, Self::Yes | Self::No | Self::Invalid)
+    }
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace, PartialEq, Eq)]
+pub enum PositionSide {
+    Yes,
+    No,
 }
 
 #[event]
@@ -472,6 +824,39 @@ pub struct PositionsMerged {
     pub amount: u64,
 }
 
+#[event]
+pub struct MarketLocked {
+    pub market: Pubkey,
+}
+
+#[event]
+pub struct ResolutionProposed {
+    pub market: Pubkey,
+    pub outcome: MarketOutcome,
+    pub challenge_deadline: i64,
+}
+
+#[event]
+pub struct ResolutionChallenged {
+    pub market: Pubkey,
+    pub challenger: Pubkey,
+}
+
+#[event]
+pub struct ResolutionFinalized {
+    pub market: Pubkey,
+    pub outcome: MarketOutcome,
+}
+
+#[event]
+pub struct PositionRedeemed {
+    pub market: Pubkey,
+    pub user: Pubkey,
+    pub side: PositionSide,
+    pub shares_burned: u64,
+    pub collateral_paid: u64,
+}
+
 #[error_code]
 pub enum CookieMarketsError {
     #[msg("Protocol fee cannot exceed 10%")]
@@ -496,6 +881,28 @@ pub enum CookieMarketsError {
     ArithmeticOverflow,
     #[msg("Amount exceeds outstanding complete sets")]
     InsufficientOutstandingSets,
+    #[msg("Market has not reached its close time")]
+    MarketStillOpen,
+    #[msg("Resolution outcome must be Yes, No, or Invalid")]
+    InvalidResolutionOutcome,
+    #[msg("Evidence hash cannot be empty")]
+    EmptyEvidenceHash,
+    #[msg("Resolution cannot be proposed yet")]
+    ResolutionTooEarly,
+    #[msg("Challenge window has closed")]
+    ChallengeWindowClosed,
+    #[msg("Resolution has already been challenged")]
+    AlreadyChallenged,
+    #[msg("Resolution was not challenged")]
+    ResolutionNotChallenged,
+    #[msg("Challenged resolution must be reviewed")]
+    ResolutionChallenged,
+    #[msg("Challenge window is still open")]
+    ChallengeWindowOpen,
+    #[msg("This position is not eligible for redemption")]
+    LosingPosition,
+    #[msg("Redemption amount is too small")]
+    PayoutRoundsToZero,
 }
 
 #[cfg(test)]
@@ -515,5 +922,40 @@ mod tests {
     #[test]
     fn rejects_resolution_before_close() {
         assert!(Market::validate_schedule(100, 300, 299).is_err());
+    }
+
+    #[test]
+    fn pays_winning_position_in_full() {
+        let market = market_with_outcome(MarketOutcome::Yes);
+        assert_eq!(market.payout_for(PositionSide::Yes, 25).unwrap(), 25);
+        assert!(market.payout_for(PositionSide::No, 25).is_err());
+    }
+
+    #[test]
+    fn pays_half_for_invalid_market() {
+        let market = market_with_outcome(MarketOutcome::Invalid);
+        assert_eq!(market.payout_for(PositionSide::Yes, 20).unwrap(), 10);
+        assert_eq!(market.payout_for(PositionSide::No, 20).unwrap(), 10);
+    }
+
+    fn market_with_outcome(outcome: MarketOutcome) -> Market {
+        Market {
+            creator: Pubkey::default(),
+            nonce: 0,
+            collateral_mint: Pubkey::default(),
+            yes_mint: Pubkey::default(),
+            no_mint: Pubkey::default(),
+            vault: Pubkey::default(),
+            resolver: Pubkey::default(),
+            question_hash: [1; 32],
+            rules_hash: [1; 32],
+            closes_at: 0,
+            resolve_after: 0,
+            created_at: 0,
+            status: MarketStatus::Resolved,
+            outcome,
+            outstanding_sets: 0,
+            bump: 0,
+        }
     }
 }
