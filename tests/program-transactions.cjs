@@ -57,6 +57,17 @@ async function expectProgramError(instructions, signers, expected) {
   assert.ok(output.includes(expected), `Expected ${expected}, received ${output}`);
 }
 
+async function expectCommittedFailure(instructions, signers) {
+  const transaction = new Transaction().add(...instructions);
+  transaction.feePayer = signers[0].publicKey;
+  const latest = await connection.getLatestBlockhash();
+  transaction.recentBlockhash = latest.blockhash;
+  transaction.sign(...signers);
+  const signature = await connection.sendRawTransaction(transaction.serialize(), { skipPreflight: true, maxRetries: 0 });
+  const result = await connection.confirmTransaction({ signature, ...latest }, "confirmed");
+  assert.ok(result.value.err, "Expected submitted transaction to fail");
+}
+
 async function chainTime() {
   const clock = await connection.getAccountInfo(new PublicKey("SysvarC1ock11111111111111111111111111111111"));
   assert.ok(clock, "Local-validator clock is missing");
@@ -225,8 +236,8 @@ async function main() {
   const userNo = await createTokenAccount(noMint);
   await send([new TransactionInstruction({ programId: tokenProgram, keys: [meta(collateral.publicKey, true), meta(userCollateral, true), meta(admin.publicKey, false, true)], data: Buffer.concat([Buffer.from([7]), integer(1_000_000_000)]) })]);
   const positionAccounts = [meta(market, true), meta(collateral.publicKey), meta(yesMint, true), meta(noMint, true), meta(vault, true), meta(userCollateral, true), meta(userYes, true), meta(userNo, true), meta(admin.publicKey, false, true), meta(tokenProgram)];
-  async function assertBalances(collateralAmount, positionAmount, vaultAmount) {
-    for (const [account, amount] of [[userCollateral, collateralAmount], [userYes, positionAmount], [userNo, positionAmount], [vault, vaultAmount]]) {
+  async function assertBalances(collateralAmount, yesAmount, vaultAmount, noAmount = yesAmount) {
+    for (const [account, amount] of [[userCollateral, collateralAmount], [userYes, yesAmount], [userNo, noAmount], [vault, vaultAmount]]) {
       assert.equal((await connection.getTokenAccountBalance(account)).value.amount, String(amount));
     }
     assert.equal((await connection.getAccountInfo(market)).data.readBigUInt64LE(298), BigInt(vaultAmount));
@@ -238,11 +249,15 @@ async function main() {
   await assertBalances(400_000_000, 600_000_000, 600_000_000);
   await send([instruction("merge_positions", positionAccounts, integer(200_000_000))]);
   await assertBalances(600_000_000, 400_000_000, 400_000_000);
-  await expectProgramError([instruction("merge_positions", positionAccounts, integer(500_000_000))], [admin], "insufficient funds");
-  await assertBalances(600_000_000, 400_000_000, 400_000_000);
-  await send([instruction("merge_positions", positionAccounts, integer(400_000_000))]);
-  await assertBalances(1_000_000_000, 0, 0);
-  console.log("Collateral custody passed: split, partial merge, full refund, zero amount, insufficient funds, and unchanged balances after rejected instructions.");
+  await send([new TransactionInstruction({ programId: tokenProgram, keys: [meta(noMint, true), meta(userNo, true), meta(admin.publicKey, false, true)], data: Buffer.concat([Buffer.from([8]), integer(1)]) })]);
+  await expectCommittedFailure([instruction("merge_positions", positionAccounts, integer(400_000_000))], [admin]);
+  await assertBalances(600_000_000, 400_000_000, 400_000_000, 399_999_999);
+  await send([new TransactionInstruction({ programId: tokenProgram, keys: [meta(yesMint, true), meta(userYes, true), meta(admin.publicKey, false, true)], data: Buffer.concat([Buffer.from([8]), integer(1)]) })]);
+  await send([instruction("merge_positions", positionAccounts, integer(399_999_999))]);
+  assert.equal((await connection.getTokenAccountBalance(userCollateral)).value.amount, "999999998");
+  for (const account of [userYes, userNo, vault]) assert.equal((await connection.getTokenAccountBalance(account)).value.amount, "0");
+  assert.equal((await connection.getAccountInfo(market)).data.readBigUInt64LE(298), 0n);
+  console.log("Collateral custody passed: split, partial merge, submitted rollback after the first burn, and complete-set withdrawal.");
   console.log("Local-validator transactions passed: initialization, mint/vault creation, market opening, unauthorized signer, repeated opening, premature locking.");
   await testSettlement(config, collateral.publicKey);
   await testClientPositions(config, collateral.publicKey);
