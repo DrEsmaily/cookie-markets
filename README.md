@@ -19,6 +19,7 @@ A prediction-market application for Cookie Chain, with a Next.js frontend and an
 - A conservative [protocol design](docs/protocol-design.md).
 - An Anchor program covering market creation, collateralized shares, resolution challenges, finalization, and redemption.
 - On-chain schedule, hash, fee, signer, PDA, and state-transition validation.
+- Frontend PDA derivation and unsigned instruction builders for creating, opening, and locking markets.
 
 ## Run locally
 
@@ -50,6 +51,8 @@ cargo test --workspace
 ```
 
 The checked-in program ID is a deterministic development placeholder, not a deployed address. Building and testing this milestone does not require a wallet, keypair, signature, or private credential.
+
+The frontend builders in `lib/cookie-markets-program.ts` prepare deterministic addresses and transaction instructions, but they deliberately do not request wallet signatures or submit transactions.
 
 ## Next protocol milestone
 
