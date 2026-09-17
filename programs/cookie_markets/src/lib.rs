@@ -741,7 +741,10 @@ impl Market {
             (MarketOutcome::Yes, PositionSide::Yes) | (MarketOutcome::No, PositionSide::No) => {
                 amount
             }
-            (MarketOutcome::Invalid, _) => amount / 2,
+            (MarketOutcome::Invalid, _) => {
+                require!(amount % 2 == 0, CookieMarketsError::InvalidRedemptionAmount);
+                amount / 2
+            }
             _ => return err!(CookieMarketsError::LosingPosition),
         };
         require!(payout > 0, CookieMarketsError::PayoutRoundsToZero);
@@ -911,6 +914,8 @@ pub enum CookieMarketsError {
     PayoutRoundsToZero,
     #[msg("Collateral mint is not approved by the protocol")]
     UnsupportedCollateral,
+    #[msg("Invalid-market redemption requires an even number of share base units")]
+    InvalidRedemptionAmount,
 }
 
 #[cfg(test)]
@@ -944,6 +949,52 @@ mod tests {
         let market = market_with_outcome(MarketOutcome::Invalid);
         assert_eq!(market.payout_for(PositionSide::Yes, 20).unwrap(), 10);
         assert_eq!(market.payout_for(PositionSide::No, 20).unwrap(), 10);
+    }
+
+    #[test]
+    fn rejects_fractional_invalid_payouts() {
+        let market = market_with_outcome(MarketOutcome::Invalid);
+        for amount in [1, 3, 25, u64::MAX] {
+            assert!(market.payout_for(PositionSide::Yes, amount).is_err());
+            assert!(market.payout_for(PositionSide::No, amount).is_err());
+        }
+    }
+
+    #[test]
+    fn rejects_zero_redemption() {
+        for outcome in [
+            MarketOutcome::Yes,
+            MarketOutcome::No,
+            MarketOutcome::Invalid,
+        ] {
+            let market = market_with_outcome(outcome);
+            assert!(market.payout_for(PositionSide::Yes, 0).is_err());
+            assert!(market.payout_for(PositionSide::No, 0).is_err());
+        }
+    }
+
+    #[test]
+    fn pays_no_winners_and_rejects_unresolved_positions() {
+        let market = market_with_outcome(MarketOutcome::No);
+        assert_eq!(
+            market.payout_for(PositionSide::No, u64::MAX).unwrap(),
+            u64::MAX
+        );
+        assert!(market.payout_for(PositionSide::Yes, 20).is_err());
+        let unresolved = market_with_outcome(MarketOutcome::Unresolved);
+        assert!(unresolved.payout_for(PositionSide::Yes, 20).is_err());
+        assert!(unresolved.payout_for(PositionSide::No, 20).is_err());
+    }
+
+    #[test]
+    fn market_serialization_matches_discovery_layout() {
+        let market = market_with_outcome(MarketOutcome::Yes);
+        let mut data = Vec::new();
+        market.try_serialize(&mut data).unwrap();
+        assert_eq!(data.len(), 307);
+        assert_eq!(Market::SPACE, data.len());
+        assert_eq!(data[296], 4);
+        assert_eq!(data[297], 1);
     }
 
     fn market_with_outcome(outcome: MarketOutcome) -> Market {

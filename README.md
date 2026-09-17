@@ -58,6 +58,8 @@ GitHub Actions runs the Rust tests, formatting check, frontend lint, and product
 
 The checked-in program ID is a deterministic development placeholder, not a deployed address. Building and testing this milestone does not require a wallet, keypair, signature, or private credential.
 
+Invalid-market redemptions require an even number of share base units so half-value payouts are exact. Odd amounts are rejected before burning shares; a single leftover base unit cannot be redeemed alone. Contract tests also verify the serialized market layout used by discovery.
+
 The frontend builders in `lib/cookie-markets-program.ts` prepare deterministic addresses and transaction instructions, but they deliberately do not request wallet signatures or submit transactions.
 
 The create-market form can validate a draft, hash its public rules, derive all market accounts, and display the resulting unsigned instruction data. It stops before transaction assembly, signing, or submission.
