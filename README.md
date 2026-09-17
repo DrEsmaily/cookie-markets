@@ -54,6 +54,8 @@ The checked-in program ID is a deterministic development placeholder, not a depl
 
 The frontend builders in `lib/cookie-markets-program.ts` prepare deterministic addresses and transaction instructions, but they deliberately do not request wallet signatures or submit transactions.
 
+The create-market form can validate a draft, hash its public rules, derive all market accounts, and display the resulting unsigned instruction data. It stops before transaction assembly, signing, or submission.
+
 ## Next protocol milestone
 
 Add full integration tests against a local validator and connect the frontend transaction builders. Deployment still waits for confirmation of the canonical wrapped COOK mint on Cookie Chain.
