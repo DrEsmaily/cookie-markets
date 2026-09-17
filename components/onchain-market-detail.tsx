@@ -6,6 +6,8 @@ import { decodeMarketAccount } from "@/lib/protocol-accounts";
 import { readVerifiedProtocol } from "@/lib/protocol-reader";
 import { formatTokenAmount } from "@/lib/token-amounts";
 import { PositionPreparationForm } from "@/components/position-preparation-form";
+import { verifyPublishedMarketTerms, type MarketTermsRecord } from "@/lib/market-terms-record";
+import { publishedMarketTerms } from "@/lib/published-market-terms";
 
 export async function OnchainMarketDetail({ address }: { address: string }) {
   try {
@@ -16,11 +18,18 @@ export async function OnchainMarketDetail({ address }: { address: string }) {
     if (!account) throw new Error("Market account was not found.");
     const market = decodeMarketAccount(publicKey, account);
     if (market.collateralMint !== protocol.collateralMint) throw new Error("Market collateral does not match protocol config.");
+    let terms: MarketTermsRecord | undefined;
+    let termsError: string | undefined;
+    try {
+      terms = await verifyPublishedMarketTerms(publishedMarketTerms, market);
+    } catch (error) {
+      termsError = error instanceof Error ? error.message : "Published terms verification failed.";
+    }
     return (
       <section className="resolution-card">
         <p className="eyebrow">VERIFIED COOKIE CHAIN MARKET · {market.status.toUpperCase()}</p>
-        <h2>On-chain market account</h2>
-        <p>Deposits remain disabled until readable question text and settlement rules are verified against these immutable hashes.</p>
+        <h2>{terms?.question ?? "On-chain market account"}</h2>
+        {terms ? <><p>Published question and rules match this market’s immutable on-chain hashes.</p><h3>Resolution source</h3><p>{terms.resolutionSource}</p><h3>Settlement rules</h3><p style={{ whiteSpace: "pre-wrap" }}>{terms.resolutionRules}</p></> : termsError ? <p role="alert">{termsError} Deposits are disabled. Withdrawals and redemption remain available for simulation.</p> : <p>No readable terms have been published in the registry. Supply the exact question and settlement rules below to verify them before preparing a deposit.</p>}
         <dl>
           <div><dt>Market</dt><dd><a href={`${COOKIE_CHAIN.explorerUrl}/address/${market.address}`} target="_blank" rel="noreferrer">{market.address} ↗</a></dd></div>
           <div><dt>Creator</dt><dd>{market.creator}</dd></div>
@@ -33,7 +42,7 @@ export async function OnchainMarketDetail({ address }: { address: string }) {
           <div><dt>Final outcome</dt><dd>{market.outcome}</dd></div>
           <div><dt>Outstanding collateral</dt><dd>{formatTokenAmount(BigInt(market.outstandingSets), protocol.collateralDecimals)} token units</dd></div>
         </dl>
-        <PositionPreparationForm market={market.address} />
+        <PositionPreparationForm key={market.address} market={market.address} terms={terms} depositsAllowed={!termsError} />
       </section>
     );
   } catch (error) {

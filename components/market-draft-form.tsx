@@ -9,6 +9,7 @@ import {
 } from "@/lib/cookie-markets-program";
 import { MarketDraft, validateMarketDraft } from "@/lib/protocol";
 import { hashMarketTerms } from "@/lib/market-terms";
+import { createMarketTermsRecord, type MarketTermsRecord } from "@/lib/market-terms-record";
 
 const initialDraft: MarketDraft = { question: "", resolutionSource: "", resolutionRules: "", closesAt: "", resolvesAt: "" };
 
@@ -82,6 +83,7 @@ export function MarketDraftForm() {
       const addresses = deriveMarketAddresses(creator, marketNonce);
 
       setPreview({
+        terms: await createMarketTermsRecord(addresses.market.toBase58(), draft),
         creator: creator.toBase58(),
         collateralMint: mint.toBase58(),
         market: addresses.market.toBase58(),
@@ -112,12 +114,14 @@ export function MarketDraftForm() {
       <button className="primary-action form-action" type="submit">Review draft</button>
       {isReady ? <div className="draft-ready"><strong>Draft passes the initial checks.</strong><p>Prepare deterministic accounts and unsigned instructions after entering a verified collateral mint.</p><button type="button" className="secondary-action" disabled={isPreparing || !collateralMint.trim()} onClick={() => void prepareInstructions()}>{isPreparing ? "Preparing…" : "Prepare unsigned instructions"}</button></div> : null}
       {prepareError ? <p className="form-error">{prepareError}</p> : null}
+      {preview ? <p><a className="secondary-action" download={`market-${preview.market}.json`} href={`data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(preview.terms, null, 2))}`}>Download public market terms</a></p> : null}
       {preview ? <div className="draft-ready"><strong>Unsigned instructions ready.</strong><p>No transaction was sent and Nightly was not asked to sign.</p><dl className="instruction-preview"><div><dt>Market</dt><dd>{preview.market}</dd></div><div><dt>YES mint</dt><dd>{preview.yesMint}</dd></div><div><dt>NO mint</dt><dd>{preview.noMint}</dd></div><div><dt>Vault</dt><dd>{preview.vault}</dd></div><div><dt>Creator</dt><dd>{preview.creator}</dd></div><div><dt>Collateral</dt><dd>{preview.collateralMint}</dd></div><div><dt>Nonce</dt><dd>{preview.marketNonce}</dd></div><div><dt>Create data</dt><dd>{preview.createData}</dd></div><div><dt>Open data</dt><dd>{preview.openData}</dd></div></dl></div> : null}
     </form>
   );
 }
 
 type InstructionPreview = {
+  terms: MarketTermsRecord;
   creator: string;
   collateralMint: string;
   market: string;

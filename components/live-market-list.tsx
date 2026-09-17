@@ -5,8 +5,9 @@ import { useEffect, useState } from "react";
 import type { VerifiedMarket } from "@/lib/protocol-accounts";
 import { COOKIE_CHAIN } from "@/lib/cookie-chain-config";
 import { formatTokenAmount } from "@/lib/token-amounts";
+import type { MarketTerms } from "@/lib/market-terms";
 
-type MarketResponse = { deployed: boolean; markets?: VerifiedMarket[]; collateralDecimals?: number; error?: string };
+type MarketResponse = { deployed: boolean; markets?: (VerifiedMarket & { terms?: MarketTerms; termsError?: string })[]; collateralDecimals?: number; error?: string };
 
 export function LiveMarketList() {
   const [result, setResult] = useState<MarketResponse>();
@@ -33,8 +34,8 @@ export function LiveMarketList() {
         <div className="market-grid">{result.markets.map((market) => (
           <article className="market-card" key={market.address}>
             <div className="market-meta"><span>{market.status}</span><span>{market.outcome}</span></div>
-            <h2><Link href={`/markets/${market.address}`}>Market {market.address.slice(0, 6)}…{market.address.slice(-4)}</Link></h2>
-            <p>Question text has not been verified. A hash is not a substitute for readable settlement rules.</p>
+            <h2><Link href={`/markets/${market.address}`}>{market.terms?.question ?? `Market ${market.address.slice(0, 6)}…${market.address.slice(-4)}`}</Link></h2>
+            <p>{market.terms ? "Published question and settlement rules verified against the chain." : market.termsError ? "Published terms failed verification. Deposits are disabled; inspect the account for withdrawals." : "Question text has not been published. Inspect the account to verify manually supplied terms."}</p>
             <p>Outstanding collateral: {formatTokenAmount(BigInt(market.outstandingSets), result.collateralDecimals ?? 9)} token units</p>
             <div className="market-footer"><Link href={`/markets/${market.address}`}>Inspect account →</Link><a href={`${COOKIE_CHAIN.explorerUrl}/address/${market.address}`} target="_blank" rel="noreferrer">Cookiescan ↗</a></div>
           </article>

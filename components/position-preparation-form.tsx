@@ -2,17 +2,18 @@
 
 import { FormEvent, useState } from "react";
 import { COOKIE_CHAIN } from "@/lib/cookie-chain-config";
+import type { MarketTerms } from "@/lib/market-terms";
 
 type Preparation = { unsignedTransaction: string; amountBaseUnits: string; feeBaseUnits: string; lastValidBlockHeight: number; note: string };
 
-export function PositionPreparationForm({ market }: { market: string }) {
-  const [action, setAction] = useState("split");
+export function PositionPreparationForm({ market, terms, depositsAllowed = true }: { market: string; terms?: MarketTerms; depositsAllowed?: boolean }) {
+  const [action, setAction] = useState(depositsAllowed ? "split" : "merge");
   const [amount, setAmount] = useState("");
   const [side, setSide] = useState("yes");
   const [wrapNative, setWrapNative] = useState(false);
-  const [question, setQuestion] = useState("");
-  const [resolutionSource, setResolutionSource] = useState("");
-  const [resolutionRules, setResolutionRules] = useState("");
+  const [question, setQuestion] = useState(terms?.question ?? "");
+  const [resolutionSource, setResolutionSource] = useState(terms?.resolutionSource ?? "");
+  const [resolutionRules, setResolutionRules] = useState(terms?.resolutionRules ?? "");
   const [preparation, setPreparation] = useState<Preparation>();
   const [error, setError] = useState<string>();
   const [isPreparing, setIsPreparing] = useState(false);
@@ -24,6 +25,7 @@ export function PositionPreparationForm({ market }: { market: string }) {
     clearPreview();
     setIsPreparing(true);
     try {
+      if (action === "split" && !depositsAllowed) throw new Error("Published terms verification failed. Deposits are disabled.");
       const wallet = window.nightly?.solana;
       const connect = wallet?.features?.["standard:connect"];
       if (!wallet || !connect) throw new Error("Install Nightly and select Cookie Chain first.");
@@ -47,7 +49,7 @@ export function PositionPreparationForm({ market }: { market: string }) {
     <form className="draft-form" onSubmit={prepare} onChange={clearPreview}>
       <h2>Prepare a real protocol transaction</h2>
       <p>This simulates the actual contract. It does not sign or submit anything. Complete sets contain equal YES and NO shares; this is not a single-side purchase or a price quote.</p>
-      <label className="form-field"><span>Operation</span><select value={action} onChange={(event) => setAction(event.target.value)}><option value="split">Deposit collateral for a YES + NO set</option><option value="merge">Return a YES + NO set for collateral</option><option value="redeem">Redeem finalized shares</option></select></label>
+      <label className="form-field"><span>Operation</span><select value={action} onChange={(event) => setAction(event.target.value)}><option value="split" disabled={!depositsAllowed}>Deposit collateral for a YES + NO set</option><option value="merge">Return a YES + NO set for collateral</option><option value="redeem">Redeem finalized shares</option></select></label>
       <label className="form-field"><span>Amount in token units</span><input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" placeholder="0.00" required /></label>
       {action === "redeem" ? <label className="form-field"><span>Share side</span><select value={side} onChange={(event) => setSide(event.target.value)}><option value="yes">YES</option><option value="no">NO</option></select></label> : null}
       {action === "split" ? <>
