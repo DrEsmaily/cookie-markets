@@ -8,6 +8,7 @@ import {
   deriveMarketAddresses,
 } from "@/lib/cookie-markets-program";
 import { MarketDraft, validateMarketDraft } from "@/lib/protocol";
+import { hashMarketTerms } from "@/lib/market-terms";
 
 const initialDraft: MarketDraft = { question: "", resolutionSource: "", resolutionRules: "", closesAt: "", resolvesAt: "" };
 
@@ -67,8 +68,7 @@ export function MarketDraftForm() {
       const creator = new PublicKey(account.address);
       const mint = new PublicKey(collateralMint.trim());
       const marketNonce = randomUnsigned64();
-      const questionHash = await sha256(draft.question.trim());
-      const rulesHash = await sha256(`${draft.resolutionSource.trim()}\n${draft.resolutionRules.trim()}`);
+      const { questionHash, rulesHash } = await hashMarketTerms(draft);
       const create = await buildCreateMarketInstruction({
         creator,
         collateralMint: mint,
@@ -128,11 +128,6 @@ type InstructionPreview = {
   createData: string;
   openData: string;
 };
-
-async function sha256(value: string): Promise<Uint8Array> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return new Uint8Array(digest);
-}
 
 function randomUnsigned64(): bigint {
   const bytes = crypto.getRandomValues(new Uint8Array(8));
