@@ -249,10 +249,10 @@ async function main() {
   await assertBalances(400_000_000, 600_000_000, 600_000_000);
   await send([instruction("merge_positions", positionAccounts, integer(200_000_000))]);
   await assertBalances(600_000_000, 400_000_000, 400_000_000);
-  await send([new TransactionInstruction({ programId: tokenProgram, keys: [meta(noMint, true), meta(userNo, true), meta(admin.publicKey, false, true)], data: Buffer.concat([Buffer.from([8]), integer(1)]) })]);
+  await send([new TransactionInstruction({ programId: tokenProgram, keys: [meta(userNo, true), meta(noMint, true), meta(admin.publicKey, false, true)], data: Buffer.concat([Buffer.from([8]), integer(1)]) })]);
   await expectCommittedFailure([instruction("merge_positions", positionAccounts, integer(400_000_000))], [admin]);
   await assertBalances(600_000_000, 400_000_000, 400_000_000, 399_999_999);
-  await send([new TransactionInstruction({ programId: tokenProgram, keys: [meta(yesMint, true), meta(userYes, true), meta(admin.publicKey, false, true)], data: Buffer.concat([Buffer.from([8]), integer(1)]) })]);
+  await send([new TransactionInstruction({ programId: tokenProgram, keys: [meta(userYes, true), meta(yesMint, true), meta(admin.publicKey, false, true)], data: Buffer.concat([Buffer.from([8]), integer(1)]) })]);
   await send([instruction("merge_positions", positionAccounts, integer(399_999_999))]);
   assert.equal((await connection.getTokenAccountBalance(userCollateral)).value.amount, "999999998");
   for (const account of [userYes, userNo, vault]) assert.equal((await connection.getTokenAccountBalance(account)).value.amount, "0");
