@@ -2,6 +2,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { featuredMarkets, formatCook, getMarket } from "@/lib/markets";
 import { PROTOCOL_LIMITS } from "@/lib/protocol";
+import { PublicKey } from "@solana/web3.js";
+import { OnchainMarketDetail } from "@/components/onchain-market-detail";
+
+export const dynamic = "force-dynamic";
 
 export function generateStaticParams() {
   return featuredMarkets.map(({ id }) => ({ id }));
@@ -10,14 +14,17 @@ export function generateStaticParams() {
 export default async function MarketPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const market = getMarket(id);
-  if (!market) notFound();
+  if (!market) {
+    try { new PublicKey(id); } catch { notFound(); }
+    return <main><nav><Link className="brand" href="/">cookie<span>markets</span></Link><Link className="back-link" href="/">← All markets</Link></nav><OnchainMarketDetail address={id} /></main>;
+  }
 
   return (
     <main>
       <nav><Link className="brand" href="/">cookie<span>markets</span></Link><Link className="back-link" href="/">← All markets</Link></nav>
       <section className="market-detail">
         <div className="detail-main">
-          <p className="eyebrow">{market.category} · OPEN</p>
+          <p className="eyebrow">{market.category} · DEMO · NOT A REAL MARKET</p>
           <h1>{market.question}</h1>
           <p className="lede">{market.description}</p>
           <div className="probability"><strong>{market.yesPrice}%</strong><span>market probability</span></div>
