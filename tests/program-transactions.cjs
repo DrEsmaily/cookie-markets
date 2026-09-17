@@ -55,6 +55,94 @@ async function expectProgramError(instructions, signers, expected) {
   assert.ok(output.includes(expected), `Expected ${expected}, received ${output}`);
 }
 
+async function chainTime() {
+  const clock = await connection.getAccountInfo(new PublicKey("SysvarC1ock11111111111111111111111111111111"));
+  assert.ok(clock, "Local-validator clock is missing");
+  return Number(clock.data.readBigInt64LE(32));
+}
+
+async function waitUntil(timestamp) {
+  const deadline = Date.now() + 180_000;
+  while (await chainTime() < timestamp) {
+    assert.ok(Date.now() < deadline, "Local-validator clock did not advance before timeout");
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+}
+
+async function testSettlement(config, collateralMint) {
+  const closesAt = await chainTime() + 120;
+  const fixtures = [];
+  for (const outcome of [1, 2, 3]) {
+    const nonce = integer(outcome + 1);
+    const market = pda("market", admin.publicKey.toBuffer(), nonce);
+    const yesMint = pda("yes_mint", market.toBuffer());
+    const noMint = pda("no_mint", market.toBuffer());
+    const vault = pda("vault", market.toBuffer());
+    const resolution = pda("resolution", market.toBuffer());
+    await send([instruction("create_market", [meta(config), meta(market, true), meta(collateralMint), meta(yesMint, true), meta(noMint, true), meta(vault, true), meta(admin.publicKey, true, true), meta(tokenProgram), meta(SystemProgram.programId)], nonce, Buffer.alloc(32, outcome), Buffer.alloc(32, outcome + 3), integer(closesAt), integer(closesAt))]);
+    const userCollateral = await createTokenAccount(collateralMint);
+    const userYes = await createTokenAccount(yesMint);
+    const userNo = await createTokenAccount(noMint);
+    await send([new TransactionInstruction({ programId: tokenProgram, keys: [meta(collateralMint, true), meta(userCollateral, true), meta(admin.publicKey, false, true)], data: Buffer.concat([Buffer.from([7]), integer(100)]) })]);
+    const positionAccounts = [meta(market, true), meta(collateralMint), meta(yesMint, true), meta(noMint, true), meta(vault, true), meta(userCollateral, true), meta(userYes, true), meta(userNo, true), meta(admin.publicKey, false, true), meta(tokenProgram)];
+    await send([instruction("open_market", [meta(market, true), meta(admin.publicKey, false, true)]), instruction("split_collateral", positionAccounts, integer(100))]);
+    const proposalAccounts = [meta(config), meta(market, true), meta(resolution, true), meta(admin.publicKey, true, true), meta(SystemProgram.programId)];
+    await expectProgramError([instruction("propose_resolution", proposalAccounts, Buffer.from([outcome]), Buffer.alloc(32, 1))], [admin], "InvalidMarketState");
+    fixtures.push({ outcome, market, yesMint, noMint, vault, resolution, userCollateral, userYes, userNo, positionAccounts, proposalAccounts });
+  }
+  await waitUntil(closesAt);
+  for (const fixture of fixtures) {
+    const { outcome, market, resolution, positionAccounts, proposalAccounts } = fixture;
+    await expectProgramError([instruction("split_collateral", positionAccounts, integer(1))], [admin], "MarketAlreadyClosed");
+    await send([instruction("lock_market", [meta(market, true)])]);
+    assert.equal((await connection.getAccountInfo(market)).data[296], 2);
+    const unauthorizedProposal = [...proposalAccounts];
+    unauthorizedProposal[3] = meta(outsider.publicKey, true, true);
+    await expectProgramError([instruction("propose_resolution", unauthorizedProposal, Buffer.from([outcome]), Buffer.alloc(32, 1))], [outsider], "ConstraintHasOne");
+    await expectProgramError([instruction("propose_resolution", proposalAccounts, Buffer.from([0]), Buffer.alloc(32, 1))], [admin], "InvalidResolutionOutcome");
+    await expectProgramError([instruction("propose_resolution", proposalAccounts, Buffer.from([outcome]), Buffer.alloc(32))], [admin], "EmptyEvidenceHash");
+    await send([instruction("propose_resolution", proposalAccounts, Buffer.from([outcome === 3 ? 1 : outcome]), Buffer.alloc(32, 1))]);
+    assert.equal((await connection.getAccountInfo(market)).data[296], 3);
+    const finalization = instruction("finalize_resolution", [meta(market, true), meta(resolution)]);
+    await expectProgramError([finalization], [admin], "ChallengeWindowOpen");
+    await expectProgramError([instruction("redeem", positionAccounts, Buffer.from([0]), integer(100))], [admin], "InvalidMarketState");
+    if (outcome === 3) {
+      await send([instruction("challenge_resolution", [meta(market), meta(resolution, true), meta(outsider.publicKey, false, true)])], [outsider]);
+      await expectProgramError([finalization], [admin], "ResolutionChallenged");
+      await expectProgramError([instruction("challenge_resolution", [meta(market), meta(resolution, true), meta(outsider.publicKey, false, true)])], [outsider], "AlreadyChallenged");
+      await expectProgramError([instruction("resolve_challenge", [meta(config), meta(market), meta(resolution, true), meta(outsider.publicKey, false, true)], Buffer.from([3]), Buffer.alloc(32, 2))], [outsider], "ConstraintHasOne");
+      await send([instruction("resolve_challenge", [meta(config), meta(market), meta(resolution, true), meta(admin.publicKey, false, true)], Buffer.from([3]), Buffer.alloc(32, 2))]);
+      await expectProgramError([finalization], [admin], "ChallengeWindowOpen");
+    }
+    const proposal = await connection.getAccountInfo(resolution);
+    await waitUntil(Number(proposal.data.readBigInt64LE(113)));
+    await send([finalization]);
+    const settled = await connection.getAccountInfo(market);
+    assert.equal(settled.data[296], 4);
+    assert.equal(settled.data[297], outcome);
+    await expectProgramError([finalization], [admin], "InvalidMarketState");
+    await expectProgramError([instruction("merge_positions", positionAccounts, integer(1))], [admin], "InvalidMarketState");
+    if (outcome === 3) {
+      await expectProgramError([instruction("redeem", positionAccounts, Buffer.from([0]), integer(1))], [admin], "InvalidRedemptionAmount");
+      assert.equal((await connection.getTokenAccountBalance(fixture.userYes)).value.amount, "100");
+      await send([instruction("redeem", positionAccounts, Buffer.from([0]), integer(100))]);
+      assert.equal((await connection.getTokenAccountBalance(fixture.vault)).value.amount, "50");
+      await send([instruction("redeem", positionAccounts, Buffer.from([1]), integer(100))]);
+    } else {
+      const winningSide = outcome - 1;
+      await expectProgramError([instruction("redeem", positionAccounts, Buffer.from([1 - winningSide]), integer(100))], [admin], "LosingPosition");
+      assert.equal((await connection.getTokenAccountBalance(fixture.vault)).value.amount, "100");
+      await send([instruction("redeem", positionAccounts, Buffer.from([winningSide]), integer(100))]);
+      assert.equal((await connection.getTokenAccountBalance(winningSide === 0 ? fixture.userYes : fixture.userNo)).value.amount, "0");
+      await expectProgramError([instruction("redeem", positionAccounts, Buffer.from([winningSide]), integer(100))], [admin], "insufficient funds");
+    }
+    assert.equal((await connection.getTokenAccountBalance(fixture.userCollateral)).value.amount, "100");
+    assert.equal((await connection.getTokenAccountBalance(fixture.vault)).value.amount, "0");
+    assert.equal((await connection.getAccountInfo(market)).data.readBigUInt64LE(298), 0n);
+  }
+  console.log("Settlement passed: YES, NO, challenged INVALID, exact refunds, losing-share rejection, challenge deadlines, unauthorized resolution, and double-redemption rejection.");
+}
+
 async function main() {
   assert.equal((await connection.getAccountInfo(program)).executable, true);
   for (const signer of [admin, outsider]) {
@@ -71,7 +159,7 @@ async function main() {
   ], [admin, collateral]);
 
   const config = pda("config");
-  await send([instruction("initialize_protocol", [meta(config, true), meta(collateral.publicKey), meta(admin.publicKey, true, true), meta(SystemProgram.programId)], admin.publicKey.toBuffer(), admin.publicKey.toBuffer(), Buffer.alloc(2), integer(2))]);
+  await send([instruction("initialize_protocol", [meta(config, true), meta(collateral.publicKey), meta(admin.publicKey, true, true), meta(SystemProgram.programId)], admin.publicKey.toBuffer(), admin.publicKey.toBuffer(), Buffer.alloc(2), integer(20))]);
   const configAccount = await connection.getAccountInfo(config);
   assert.equal(configAccount.data.length, 147);
   assert.ok(configAccount.owner.equals(program));
@@ -121,6 +209,7 @@ async function main() {
   await assertBalances(1_000_000_000, 0, 0);
   console.log("Collateral custody passed: split, partial merge, full refund, zero amount, insufficient funds, and unchanged balances after rejected instructions.");
   console.log("Local-validator transactions passed: initialization, mint/vault creation, market opening, unauthorized signer, repeated opening, premature locking.");
+  await testSettlement(config, collateral.publicKey);
 }
 
 main().catch((error) => { console.error(error); process.exitCode = 1; });
