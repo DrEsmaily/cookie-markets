@@ -62,7 +62,7 @@ The resolver must follow the immutable rules hash. `Invalid` is used only when t
 
 - Exact resolver multisig and signer threshold.
 - Canonical wrapped COOK mint for the first deployment.
-- Whether v1 includes an AMM or starts with complete-set minting plus an external order book.
+- Both an escrowed order book and funded AMM pools are selected for the product. See the [implementation track](trading-venues.md); execution instructions and liquidity funding remain incomplete.
 - Fee rates and fee split. Current frontend constants are placeholders, not deployed economics.
 - Program upgrade authority and eventual immutability policy.
 

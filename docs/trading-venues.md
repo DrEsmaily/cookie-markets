@@ -1,0 +1,27 @@
+# Order book and AMM implementation track
+
+The product will support both venues, as requested. Neither venue is implemented in the deployed protocol: no deployment exists. `lib/trading-math.ts` supplies tested reference arithmetic, not executable custody instructions or a live price feed.
+
+## Shared rules
+
+Trade collateral against one market's YES or NO mint. Keep the existing complete-set backing vault separate from trading escrow and pool reserves. Never count liquidity as extra backing or let a trading authority mint outcome shares. Both venues must validate the market, mint, token-program authority, open state, and close timestamp on-chain, not merely in the interface. Cancellation and liquidity recovery must remain available after trading closes.
+
+Amounts are unsigned 64-bit base units. Order intermediates fit unsigned 128-bit arithmetic; the pool's fee-weighted numerator can exceed 128 bits at full u64 reserves, so its Rust implementation requires checked wider arithmetic or explicit tested reserve caps. Never silently wrap or truncate an intermediate. The reference implementation uses bigint. Fixed order prices use a scale of 1,000,000 collateral units per share unit, assuming equal collateral/outcome mint decimals. An execution instruction must check that assumption. Price one represents a full collateral unit per share, not a guaranteed profit.
+
+Fee parameters in quote tests are inputs, not approved live fees. Fee policy, liquidity funding, and authorities still require explicit decisions before deployment.
+
+## First: escrowed limit orders
+
+Implement maker-owned ask orders that escrow existing shares, with a nonce-bound order PDA, checked market/side/mint, fixed price, total and filled quantity, and expiry no later than market close. Takers pay collateral, receive shares atomically, and enforce a maximum collateral debit. Only the maker can cancel and recover remaining shares. Anyone may fill an unexpired open order; no trusted matching server should be able to withdraw escrow. Bid escrow, indexing, best-price selection, and cancellation races require their own instructions and tests before claiming a full order book.
+
+Charge each fill the difference between rounded cumulative consideration before and after the fill. Apply fee rounding to cumulative consideration too. This avoids charging repeated rounding premiums for fragmented fills. Reject any fill whose collateral transfer rounds to zero: no shares should leave escrow for free. Record progress only within the same atomic transfer transaction. Caller-supplied prior fills are not authoritative; read them from the order account.
+
+## Then: funded pools
+
+Implement separate collateral/YES and collateral/NO constant-product pools, using the invariant described in the [Uniswap v2 whitepaper](https://docs.uniswap.org/whitepaper.pdf). These are independent token pools, not a binary fixed-product market maker; their prices need not sum to one and are not objective probabilities. Quotes use actual reserves and input fees retained in the pool. Output rounds down; the reserve product must not decrease. Slippage minimums round up and must be supplied to and enforced by the swap instruction, with an expiry and correct direction/mints.
+
+Pool initialization, LP ownership, proportional deposits/withdrawals, initial-liquidity rounding, donations, reserve synchronization, and recovery after market settlement need contract tests. No synthetic liquidity, seed fund allocation, or automatic pool funding is authorized by this document.
+
+## Gate before exposing a trading button
+
+Implement and test escrow/pool accounts and transfers on the disposable validator, including substituted accounts, overfills, concurrency, expired orders, slippage rejection, atomic rollback, and complete-set solvency. Port the reference arithmetic to Rust and compare vectors. Then add strict client decoders, unsigned transaction review/simulation, and live verified discovery. Keep signing/deployment disabled until separately authorized. Passing arithmetic tests alone is not completion of either trading engine.

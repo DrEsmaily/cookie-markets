@@ -16,7 +16,7 @@ Most rejected-instruction cases use signed simulation; the atomic rollback test 
 
 ## Product work still required
 
-1. Select and implement a single-side execution venue (order book/matching or an AMM), then test matching, cancellation, liquidity, prices, and fees. Complete-set minting alone is not prediction-market trading.
+1. Implement both selected execution venues: [escrowed order book, then funded AMM pools](trading-venues.md). Reference pricing arithmetic is tested; custody, matching, cancellation, liquidity, prices, and fees still require execution implementation and validator tests. Complete-set minting alone is not prediction-market trading.
 2. Use the initial [Git-backed public terms registry](market-terms-publication.md) for curated question/rules publication. Select production persistence and availability guarantees, and add durable resolution evidence and automated publication. Hash mismatches must keep deposits disabled; local exports alone are not publication.
 3. Complete transaction review, wallet account/network-change handling, signing, submission, expiry, confirmation, and recovery flows. Current forms stop at unsigned instructions or simulation.
 4. Specify supported creator/resolver policies, challenge evidence handling, and emergency/upgrade governance. Resolver trust is explicit; no independent oracle or working multisig is claimed.
