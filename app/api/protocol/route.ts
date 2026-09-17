@@ -5,15 +5,52 @@ import { cookieChainConnection } from "@/lib/cookie-chain";
 import {
   COOKIE_MARKETS_PROGRAM_ID,
   deriveConfigAddress,
+  deriveMarketAddresses,
 } from "@/lib/cookie-markets-program";
 
 export const dynamic = "force-dynamic";
 
 const CONFIG_SIZE = 147;
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const configAddress = deriveConfigAddress();
+    if (new URL(request.url).searchParams.get("markets") === "true") {
+      const discriminator = createHash("sha256").update("account:Market").digest().subarray(0, 8);
+      const accounts = await cookieChainConnection.getProgramAccounts(COOKIE_MARKETS_PROGRAM_ID, {
+        filters: [{ dataSize: 307 }],
+      });
+      const markets = accounts.flatMap(({ pubkey, account }) => {
+        const data = account.data;
+        if (!account.owner.equals(COOKIE_MARKETS_PROGRAM_ID) || !data.subarray(0, 8).equals(discriminator)) return [];
+        const creator = new PublicKey(data.subarray(8, 40));
+        const nonce = data.readBigUInt64LE(40);
+        const addresses = deriveMarketAddresses(creator, nonce);
+        if (!addresses.market.equals(pubkey)) return [];
+        const status = ["draft", "open", "locked", "proposed", "resolved"][data[296]];
+        const outcome = ["unresolved", "yes", "no", "invalid"][data[297]];
+        if (!status || !outcome) return [];
+        return [{
+          address: pubkey.toBase58(),
+          creator: creator.toBase58(),
+          nonce: nonce.toString(),
+          collateralMint: publicKeyAt(data, 48),
+          yesMint: publicKeyAt(data, 80),
+          noMint: publicKeyAt(data, 112),
+          vault: publicKeyAt(data, 144),
+          resolver: publicKeyAt(data, 176),
+          questionHash: data.subarray(208, 240).toString("hex"),
+          rulesHash: data.subarray(240, 272).toString("hex"),
+          closesAt: data.readBigInt64LE(272).toString(),
+          resolveAfter: data.readBigInt64LE(280).toString(),
+          createdAt: data.readBigInt64LE(288).toString(),
+          status,
+          outcome,
+          outstandingSets: data.readBigUInt64LE(298).toString(),
+        }];
+      });
+      return NextResponse.json({ markets });
+    }
     const account = await cookieChainConnection.getAccountInfo(configAddress);
     if (!account) {
       return NextResponse.json({ deployed: false, configAddress: configAddress.toBase58() });

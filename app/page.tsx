@@ -29,7 +29,7 @@ export default function Home() {
 
       <section className="market-section" id="markets">
         <div className="section-heading">
-          <div><p className="eyebrow">LIVE MARKETS</p><h2>What are you certain about?</h2></div>
+          <div><p className="eyebrow">DEMO MARKETS · TRADING DISABLED</p><h2>What are you certain about?</h2></div>
           <button type="button" className="filter-button">All categories <span>⌄</span></button>
         </div>
         <div className="market-grid">{featuredMarkets.map((market) => <MarketCard key={market.id} market={market} />)}</div>
