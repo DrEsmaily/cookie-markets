@@ -12,12 +12,12 @@ The repository is not a production release. A green build proves compilation and
 - Frontend-generated associated-account setup, complete-set deposit/withdrawal, and native wrapping/unwrapping on a local validator.
 - Frontend lint, type check, and production build.
 
-Rejected-instruction cases use signed simulation; successful lifecycle/custody cases are submitted and confirmed on the disposable validator. No test uses a real wallet or Cookie Chain funds.
+Most rejected-instruction cases use signed simulation; the atomic rollback test submits and confirms a deliberately failing transaction. Successful lifecycle/custody cases are also submitted and confirmed on the disposable validator. No test uses a real wallet or Cookie Chain funds.
 
 ## Product work still required
 
 1. Select and implement a single-side execution venue (order book/matching or an AMM), then test matching, cancellation, liquidity, prices, and fees. Complete-set minting alone is not prediction-market trading.
-2. Persist public question/rules text and evidence in a durable, independently readable registry. Hash mismatches must keep deposits disabled. Local drafts and manually supplied terms are not durable publication.
+2. Use the initial [Git-backed public terms registry](market-terms-publication.md) for curated question/rules publication. Select production persistence and availability guarantees, and add durable resolution evidence and automated publication. Hash mismatches must keep deposits disabled; local exports alone are not publication.
 3. Complete transaction review, wallet account/network-change handling, signing, submission, expiry, confirmation, and recovery flows. Current forms stop at unsigned instructions or simulation.
 4. Specify supported creator/resolver policies, challenge evidence handling, and emergency/upgrade governance. Resolver trust is explicit; no independent oracle or working multisig is claimed.
 5. Add service rate limits, request-size enforcement at the hosting boundary, RPC timeouts/monitoring, and HTTP-level integration tests for preparation failures.
