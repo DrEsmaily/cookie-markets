@@ -29,6 +29,7 @@ A prediction-market application for Cookie Chain, with a Next.js frontend and an
 - Exact decimal/base-unit parsing without floating-point rounding.
 - Complete-set transaction assembly with idempotent associated-account setup and explicit native wrapping.
 - Unsigned deposit, merge, and redemption simulation at `POST /api/positions/prepare`. Deposit terms must match the immutable on-chain hashes. No signing or broadcasting endpoint exists.
+- A curated [public market terms registry](docs/market-terms-publication.md) stored in Git, with draft JSON export and verification of published text against the exact market, network, program, and immutable hashes.
 
 ## Run locally
 
