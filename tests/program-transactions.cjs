@@ -31,6 +31,15 @@ async function send(instructions, signers = [admin]) {
   return sendAndConfirmTransaction(connection, new Transaction().add(...instructions), signers);
 }
 
+async function createTokenAccount(mint) {
+  const account = Keypair.generate();
+  await send([
+    SystemProgram.createAccount({ fromPubkey: admin.publicKey, newAccountPubkey: account.publicKey, lamports: await connection.getMinimumBalanceForRentExemption(165), space: 165, programId: tokenProgram }),
+    new TransactionInstruction({ programId: tokenProgram, keys: [meta(account.publicKey, true), meta(mint)], data: Buffer.concat([Buffer.from([18]), admin.publicKey.toBuffer()]) }),
+  ], [admin, account]);
+  return account.publicKey;
+}
+
 async function expectProgramError(instructions, signers, expected) {
   const transaction = new Transaction().add(...instructions);
   transaction.feePayer = signers[0].publicKey;
@@ -88,6 +97,29 @@ async function main() {
   assert.equal(marketAccount.data[296], 1);
   await expectProgramError([instruction("open_market", [meta(market, true), meta(admin.publicKey, false, true)])], [admin], "InvalidMarketState");
   await expectProgramError([instruction("lock_market", [meta(market, true)])], [admin], "MarketStillOpen");
+  const userCollateral = await createTokenAccount(collateral.publicKey);
+  const userYes = await createTokenAccount(yesMint);
+  const userNo = await createTokenAccount(noMint);
+  await send([new TransactionInstruction({ programId: tokenProgram, keys: [meta(collateral.publicKey, true), meta(userCollateral, true), meta(admin.publicKey, false, true)], data: Buffer.concat([Buffer.from([7]), integer(1_000_000_000)]) })]);
+  const positionAccounts = [meta(market, true), meta(collateral.publicKey), meta(yesMint, true), meta(noMint, true), meta(vault, true), meta(userCollateral, true), meta(userYes, true), meta(userNo, true), meta(admin.publicKey, false, true), meta(tokenProgram)];
+  async function assertBalances(collateralAmount, positionAmount, vaultAmount) {
+    for (const [account, amount] of [[userCollateral, collateralAmount], [userYes, positionAmount], [userNo, positionAmount], [vault, vaultAmount]]) {
+      assert.equal((await connection.getTokenAccountBalance(account)).value.amount, String(amount));
+    }
+    assert.equal((await connection.getAccountInfo(market)).data.readBigUInt64LE(298), BigInt(vaultAmount));
+  }
+  await expectProgramError([instruction("split_collateral", positionAccounts, integer(0))], [admin], "ZeroAmount");
+  await send([instruction("split_collateral", positionAccounts, integer(600_000_000))]);
+  await assertBalances(400_000_000, 600_000_000, 600_000_000);
+  await expectProgramError([instruction("split_collateral", positionAccounts, integer(500_000_000))], [admin], "insufficient funds");
+  await assertBalances(400_000_000, 600_000_000, 600_000_000);
+  await send([instruction("merge_positions", positionAccounts, integer(200_000_000))]);
+  await assertBalances(600_000_000, 400_000_000, 400_000_000);
+  await expectProgramError([instruction("merge_positions", positionAccounts, integer(500_000_000))], [admin], "insufficient funds");
+  await assertBalances(600_000_000, 400_000_000, 400_000_000);
+  await send([instruction("merge_positions", positionAccounts, integer(400_000_000))]);
+  await assertBalances(1_000_000_000, 0, 0);
+  console.log("Collateral custody passed: split, partial merge, full refund, zero amount, insufficient funds, and unchanged balances after rejected instructions.");
   console.log("Local-validator transactions passed: initialization, mint/vault creation, market opening, unauthorized signer, repeated opening, premature locking.");
 }
 
