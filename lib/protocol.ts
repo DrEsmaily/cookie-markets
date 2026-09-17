@@ -47,9 +47,11 @@ export function validateMarketDraft(draft: MarketDraft) {
   if (questionBytes < 10) errors.question = "Write a specific question of at least 10 bytes.";
   else if (questionBytes > PROTOCOL_LIMITS.maxQuestionBytes) errors.question = `Question must fit within ${PROTOCOL_LIMITS.maxQuestionBytes} bytes.`;
   if (!draft.resolutionSource.trim()) errors.resolutionSource = "Name the exact public source used for settlement.";
+  else if (/[\r\n]/.test(draft.resolutionSource.trim()) || new TextEncoder().encode(draft.resolutionSource.trim()).length > 256) errors.resolutionSource = "Use a single-line source of at most 256 bytes.";
   if (rulesBytes < 30) errors.resolutionRules = "Describe objective Yes, No, and Invalid conditions.";
   else if (rulesBytes > PROTOCOL_LIMITS.maxResolutionRulesBytes) errors.resolutionRules = `Rules must fit within ${PROTOCOL_LIMITS.maxResolutionRulesBytes} bytes.`;
   if (!Number.isFinite(closesAt)) errors.closesAt = "Choose when trading closes.";
+  else if (closesAt <= Date.now()) errors.closesAt = "Trading must close in the future.";
   if (!Number.isFinite(resolvesAt)) errors.resolvesAt = "Choose the earliest resolution time.";
   else if (Number.isFinite(closesAt) && resolvesAt <= closesAt) errors.resolvesAt = "Resolution must happen after trading closes.";
 

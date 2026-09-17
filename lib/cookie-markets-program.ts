@@ -65,6 +65,9 @@ export async function buildInitializeProtocolInstruction(params: {
   if (!Number.isInteger(params.feeBps) || params.feeBps < 0 || params.feeBps > 1_000) {
     throw new RangeError("feeBps must be an integer between 0 and 1000");
   }
+  if (params.challengePeriod <= BigInt(0)) {
+    throw new RangeError("challengePeriod must be positive");
+  }
 
   return instruction(
     "initialize_protocol",
@@ -107,6 +110,9 @@ export async function buildCreateMarketInstruction(
 ): Promise<TransactionInstruction> {
   assertHash(params.questionHash, "questionHash");
   assertHash(params.rulesHash, "rulesHash");
+  if (params.closesAt <= BigInt(0) || params.resolveAfter < params.closesAt) {
+    throw new RangeError("Market schedule is invalid");
+  }
 
   const config = deriveConfigAddress();
   const addresses = deriveMarketAddresses(params.creator, params.marketNonce);
@@ -249,6 +255,9 @@ export async function buildFinalizeResolutionInstruction(
 export async function buildRedeemInstruction(
   params: PositionInstructionParams & { side: PositionSide },
 ): Promise<TransactionInstruction> {
+  if (params.side !== "yes" && params.side !== "no") {
+    throw new RangeError("Position side must be yes or no");
+  }
   return buildPositionInstruction(
     "redeem",
     params,
@@ -282,6 +291,9 @@ async function buildPositionInstruction(
   params: PositionInstructionParams,
   prefix = new Uint8Array(),
 ): Promise<TransactionInstruction> {
+  if (params.amount <= BigInt(0)) {
+    throw new RangeError("Position amount must be positive");
+  }
   const { market, yesMint, noMint, vault } = deriveMarketAddresses(
     params.creator,
     params.marketNonce,
@@ -341,13 +353,14 @@ function encodeSigned64(value: bigint): Uint8Array {
 }
 
 function assertHash(hash: Uint8Array, name: string): void {
-  if (hash.length !== 32) {
-    throw new RangeError(`${name} must contain exactly 32 bytes`);
+  if (hash.length !== 32 || hash.every((byte) => byte === 0)) {
+    throw new RangeError(`${name} must contain exactly 32 bytes and must not be empty`);
   }
 }
 
 function encodeOutcome(outcome: ResolutionOutcome): Uint8Array {
   const value = { yes: 1, no: 2, invalid: 3 }[outcome];
+  if (value === undefined) throw new RangeError("Resolution outcome must be yes, no, or invalid");
   return Uint8Array.of(value);
 }
 
