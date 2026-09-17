@@ -20,6 +20,7 @@ A prediction-market application for Cookie Chain, with a Next.js frontend and an
 - An Anchor program covering market creation, collateralized shares, resolution challenges, finalization, and redemption.
 - On-chain schedule, hash, fee, signer, PDA, and state-transition validation.
 - Program-level enforcement of the single approved collateral mint.
+- Read-only Cookie Chain protocol discovery with config owner and discriminator verification.
 - Frontend PDA derivation and unsigned instruction builders for every current protocol instruction.
 
 ## Run locally
