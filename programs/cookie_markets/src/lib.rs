@@ -24,11 +24,12 @@ pub mod cookie_markets {
         fee_bps: u16,
         challenge_period: i64,
     ) -> Result<()> {
-        require!(fee_bps <= MAX_FEE_BPS, CookieMarketsError::FeeTooHigh);
-        require!(
-            challenge_period > 0,
-            CookieMarketsError::InvalidChallengePeriod
-        );
+        ProtocolConfig::validate_initialization(
+            fee_recipient,
+            resolver,
+            fee_bps,
+            challenge_period,
+        )?;
 
         let config = &mut ctx.accounts.config;
         config.admin = ctx.accounts.admin.key();
@@ -701,6 +702,28 @@ pub struct ProtocolConfig {
 
 impl ProtocolConfig {
     pub const SPACE: usize = 8 + 32 + 32 + 32 + 32 + 2 + 8 + 1;
+
+    fn validate_initialization(
+        fee_recipient: Pubkey,
+        resolver: Pubkey,
+        fee_bps: u16,
+        challenge_period: i64,
+    ) -> Result<()> {
+        require!(
+            fee_recipient != Pubkey::default(),
+            CookieMarketsError::InvalidFeeRecipient
+        );
+        require!(
+            resolver != Pubkey::default(),
+            CookieMarketsError::InvalidResolver
+        );
+        require!(fee_bps <= MAX_FEE_BPS, CookieMarketsError::FeeTooHigh);
+        require!(
+            challenge_period > 0,
+            CookieMarketsError::InvalidChallengePeriod
+        );
+        Ok(())
+    }
 }
 
 #[account]
@@ -868,6 +891,10 @@ pub struct PositionRedeemed {
 
 #[error_code]
 pub enum CookieMarketsError {
+    #[msg("Fee recipient cannot be the default public key")]
+    InvalidFeeRecipient,
+    #[msg("Resolver cannot be the default public key")]
+    InvalidResolver,
     #[msg("Protocol fee cannot exceed 10%")]
     FeeTooHigh,
     #[msg("Challenge period must be positive")]
@@ -935,6 +962,16 @@ mod tests {
     #[test]
     fn rejects_resolution_before_close() {
         assert!(Market::validate_schedule(100, 300, 299).is_err());
+    }
+
+    #[test]
+    fn rejects_unusable_protocol_configuration() {
+        let valid = Pubkey::new_unique();
+        assert!(ProtocolConfig::validate_initialization(valid, valid, 1_000, 1).is_ok());
+        assert!(ProtocolConfig::validate_initialization(Pubkey::default(), valid, 0, 1).is_err());
+        assert!(ProtocolConfig::validate_initialization(valid, Pubkey::default(), 0, 1).is_err());
+        assert!(ProtocolConfig::validate_initialization(valid, valid, 1_001, 1).is_err());
+        assert!(ProtocolConfig::validate_initialization(valid, valid, 0, 0).is_err());
     }
 
     #[test]
