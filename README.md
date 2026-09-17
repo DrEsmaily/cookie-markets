@@ -25,6 +25,10 @@ A prediction-market application for Cookie Chain, with a Next.js frontend and an
 - Dynamic wrapped COOK discovery through Cookiescan's canonical asset registry.
 - Registry outages are reported separately from RPC health. Unsigned preparation stays disabled when protocol or network verification fails.
 - Frontend PDA derivation and unsigned instruction builders for every current protocol instruction.
+- Verified live-market discovery and dynamic account detail pages, separate from demo prices. Unknown question text is never presented as verified.
+- Exact decimal/base-unit parsing without floating-point rounding.
+- Complete-set transaction assembly with idempotent associated-account setup and explicit native wrapping.
+- Unsigned deposit, merge, and redemption simulation at `POST /api/positions/prepare`. Deposit terms must match the immutable on-chain hashes. No signing or broadcasting endpoint exists.
 
 ## Run locally
 
@@ -55,7 +59,11 @@ Run its unit tests with:
 cargo test --workspace
 ```
 
-GitHub Actions runs the Rust tests, formatting check, frontend lint, and production build for every push and pull request.
+GitHub Actions runs the Rust tests, formatting check, frontend instruction/account tests (`npm test`), lint, and production build for every push and pull request.
+
+A separate Linux job uses Agave 4.2.2 to build the real SBF deploy target with locked dependencies. Successful runs publish only `cookie_markets.so` as the `cookie-markets-sbf` artifact, not keypairs. This job does not deploy to Cookie Chain or use a real funded wallet. A passing SBF build is necessary but does not establish production readiness; transaction-level tests and security review are still required.
+
+After compilation, CI loads the program into a disposable local validator and runs `tests/program-transactions.cjs`. The harness uses generated in-memory test accounts and local airdrops, never a user wallet or Cookie Chain funds. It covers initialization, outcome mint/vault creation, signer and transition checks, collateral deposits, partial/full merges, YES/NO settlement, public challenges, challenged Invalid settlement, exact half refunds, losing shares, and repeated-redemption rejection. It also executes the frontend complete-set builders against the contract and tests native wrapping/unwrapping. These are integration tests, not an independent security audit.
 
 The checked-in program ID is a deterministic development placeholder, not a deployed address. Building and testing this milestone does not require a wallet, keypair, signature, or private credential.
 
@@ -63,10 +71,12 @@ Invalid-market redemptions require an even number of share base units so half-va
 
 The frontend builders in `lib/cookie-markets-program.ts` prepare deterministic addresses and transaction instructions, but they deliberately do not request wallet signatures or submit transactions.
 
-The create-market form can validate a draft, hash its public rules, derive all market accounts, and display the resulting unsigned instruction data. It stops before transaction assembly, signing, or submission.
+The create-market form validates a draft, hashes its public rules, derives all market accounts, and displays unsigned instruction data. Sources must be single-line text to keep the source/rules commitment unambiguous. It stops before signing or submission.
+
+Live account pages allow simulation of unsigned position transactions. Nightly must report the exact Cookie Chain genesis hash; the backend separately verifies RPC genesis, executable program, config layout/PDA, collateral mint, and market custody PDAs. Simulations do not change balances. Withdrawals/redemptions return wrapped collateral; native unwrapping is always a separate explicit action. Network-fee estimates exclude account-creation rent.
 
 ## Next protocol milestone
 
-Add full integration tests against a local validator and connect the frontend transaction builders. Deployment still waits for confirmation of the canonical wrapped COOK mint on Cookie Chain.
+See [release checklist](docs/release-checklist.md). Single-side purchases, executable price quotes, and liquidity are not implemented: complete-set minting is not an exchange. A matching/liquidity mechanism, durable public market/evidence metadata, independent security review, and explicit deployment approval remain necessary before calling this a live prediction-market product.
 
 No wallet secrets, private keys, or deployment configuration are included in this repository.
