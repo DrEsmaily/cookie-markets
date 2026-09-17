@@ -255,9 +255,10 @@ async function main() {
   await send([new TransactionInstruction({ programId: tokenProgram, keys: [meta(userYes, true), meta(yesMint, true), meta(admin.publicKey, false, true)], data: Buffer.concat([Buffer.from([8]), integer(1)]) })]);
   await send([instruction("merge_positions", positionAccounts, integer(399_999_999))]);
   assert.equal((await connection.getTokenAccountBalance(userCollateral)).value.amount, "999999999");
-  for (const account of [userYes, userNo, vault]) assert.equal((await connection.getTokenAccountBalance(account)).value.amount, "0");
-  assert.equal((await connection.getAccountInfo(market)).data.readBigUInt64LE(298), 0n);
-  console.log("Collateral custody passed: split, partial merge, submitted rollback after the first burn, and complete-set withdrawal.");
+  for (const account of [userYes, userNo]) assert.equal((await connection.getTokenAccountBalance(account)).value.amount, "0");
+  assert.equal((await connection.getTokenAccountBalance(vault)).value.amount, "1");
+  assert.equal((await connection.getAccountInfo(market)).data.readBigUInt64LE(298), 1n);
+  console.log("Collateral custody passed: split, partial merge, submitted rollback after the first burn, and deliberate share burns leave their matching collateral locked.");
   console.log("Local-validator transactions passed: initialization, mint/vault creation, market opening, unauthorized signer, repeated opening, premature locking.");
   await testSettlement(config, collateral.publicKey);
   await testClientPositions(config, collateral.publicKey);
