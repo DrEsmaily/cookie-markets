@@ -20,7 +20,20 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint
+      - run: npm test
       - run: npm run build
+      - name: Verify preparation HTTP guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run start -- --hostname 127.0.0.1 --port 3001 > "$RUNNER_TEMP/frontend.log" 2>&1 &
+          FRONTEND_PID=$!
+          trap 'kill "$FRONTEND_PID" || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3001 >/dev/null; then break; fi
+            sleep 1
+          done
+          npm run test:http
 
   program:
     name: Anchor program
@@ -76,4 +89,5 @@ jobs:
             if solana --url http://127.0.0.1:8899 cluster-version >/dev/null 2>&1; then break; fi
             sleep 1
           done
+          npm test
           node tests/program-transactions.cjs
