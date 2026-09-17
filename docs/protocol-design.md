@@ -8,7 +8,7 @@ This document defines the first implementation target. It is deliberately conser
 - Collateral is an SPL token account selected by an allowlist. Native COOK should be wrapped before it enters program custody so all accounting uses token-program transfers.
 - Complete sets are fully collateralized: one unit of collateral mints one Yes share and one No share. A complete Yes + No pair can be merged back into one unit before resolution.
 - Trading is closed at a fixed timestamp. Shares remain redeemable after resolution.
-- The market creator cannot unilaterally resolve a market.
+- Resolution is restricted to the configured resolver. Production policy must keep creator and resolver control separate; the contract does not prevent the resolver address from also creating a market.
 - Every market commits to immutable question and rules hashes. Full text is stored in the app/indexer and displayed before trading.
 
 ## Accounts and PDA seeds
@@ -44,7 +44,7 @@ A challenged proposal remains `Proposed` until the resolver replaces or confirms
 
 ## Resolution model
 
-The MVP uses a designated resolver controlled by a multisig, plus a public challenge window. This is simpler to audit than pretending arbitrary real-world facts can be trustlessly derived on-chain. Each proposal includes an evidence hash; the indexer stores and displays the underlying source links and snapshots.
+The contract uses a designated resolver address, plus a public challenge window. Production multisig operation and its signer threshold are not yet configured or integration-tested. This is simpler to audit than pretending arbitrary real-world facts can be trustlessly derived on-chain. Each proposal includes an evidence hash; durable public evidence storage and display remain release requirements.
 
 The resolver must follow the immutable rules hash. `Invalid` is used only when the source is unavailable, the question is ambiguous under its written rules, or the measured event cannot be determined. Future versions can replace the designated resolver with an oracle adapter without changing share custody.
 
@@ -66,4 +66,4 @@ The resolver must follow the immutable rules hash. `Invalid` is used only when t
 - Fee rates and fee split. Current frontend constants are placeholders, not deployed economics.
 - Program upgrade authority and eventual immutability policy.
 
-These choices require user approval before program code, program IDs, deployment commands, or wallet signatures are introduced.
+These choices require user approval before live economics, deployment, credentials, or real-wallet signatures are introduced. The checked-in program ID remains a development placeholder.
