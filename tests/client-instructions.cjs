@@ -240,3 +240,20 @@ test("readable market terms produce the exact committed hashes", async () => {
   await assert.rejects(hashMarketTerms({ ...terms, question: "" }), /Question/);
   await assert.rejects(hashMarketTerms({ ...terms, resolutionRules: "x".repeat(1025) }), /Rules/);
 });
+
+test("published terms bind readable text to the exact market, network, program, and hashes", async () => {
+  const { createMarketTermsRecord, verifyPublishedMarketTerms } = require("../.test-build/market-terms-record.js");
+  const terms = { question: "Will the public source report the event?", resolutionSource: "Public source", resolutionRules: "YES if reported; NO otherwise." };
+  const hashed = await hashMarketTerms(terms);
+  const market = { address: client.deriveMarketAddresses(creator, marketNonce).market.toBase58(), questionHash: hashHex(hashed.questionHash), rulesHash: hashHex(hashed.rulesHash) };
+  const record = await createMarketTermsRecord(market.address, terms);
+  assert.deepEqual(await verifyPublishedMarketTerms([record], market), record);
+  assert.equal(await verifyPublishedMarketTerms([], market), undefined);
+  assert.equal(await verifyPublishedMarketTerms([null, { ...record, market: user.toBase58() }], market), undefined);
+  await assert.rejects(verifyPublishedMarketTerms([record, record], market), /Multiple/);
+  for (const changes of [{ version: 2 }, { genesisHash: "wrong-chain" }, { program: user.toBase58() }, { question: 42 }, { question: "Changed question" }, { resolutionSource: "Changed source" }, { resolutionRules: "Changed rules" }]) {
+    await assert.rejects(verifyPublishedMarketTerms([{ ...record, ...changes }], market));
+  }
+  await assert.rejects(verifyPublishedMarketTerms([record], { ...market, questionHash: "0".repeat(64) }), /hashes/);
+  await assert.rejects(verifyPublishedMarketTerms([record], { ...market, rulesHash: "0".repeat(64) }), /hashes/);
+});
