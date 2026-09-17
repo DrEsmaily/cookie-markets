@@ -51,6 +51,8 @@ Run its unit tests with:
 cargo test --workspace
 ```
 
+GitHub Actions runs the Rust tests, formatting check, frontend lint, and production build for every push and pull request.
+
 The checked-in program ID is a deterministic development placeholder, not a deployed address. Building and testing this milestone does not require a wallet, keypair, signature, or private credential.
 
 The frontend builders in `lib/cookie-markets-program.ts` prepare deterministic addresses and transaction instructions, but they deliberately do not request wallet signatures or submit transactions.
