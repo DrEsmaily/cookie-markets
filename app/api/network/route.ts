@@ -9,17 +9,20 @@ const COOK_REGISTRY_URL = "https://api.cookiescan.io/v1/assets/resolve?ref=COOK"
 
 export async function GET() {
   try {
-    const [slot, genesisHash, wrappedCookMint] = await Promise.all([
+    const [slot, genesisHash, collateral] = await Promise.all([
       cookieChainConnection.getSlot(),
       cookieChainConnection.getGenesisHash(),
-      resolveWrappedCookMint(),
+      resolveWrappedCookMint()
+        .then((mint) => ({ mint, error: undefined as string | undefined }))
+        .catch(() => ({ mint: undefined, error: "Wrapped COOK registry is currently unavailable." })),
     ]);
 
     return NextResponse.json({
       healthy: genesisHash === COOKIE_CHAIN.genesisHash,
       slot,
       genesisHash,
-      wrappedCookMint,
+      wrappedCookMint: collateral.mint,
+      collateralError: collateral.error,
       checkedAt: new Date().toISOString()
     });
   } catch {
@@ -31,7 +34,10 @@ export async function GET() {
 }
 
 async function resolveWrappedCookMint(): Promise<string> {
-  const response = await fetch(COOK_REGISTRY_URL, { cache: "no-store" });
+  const response = await fetch(COOK_REGISTRY_URL, {
+    cache: "no-store",
+    signal: AbortSignal.timeout(5_000),
+  });
   if (!response.ok) throw new Error("Cookiescan asset registry is unavailable.");
   const registry = await response.json() as {
     asset?: { variants?: Array<{ mint?: string; symbol?: string; kind?: string }> };

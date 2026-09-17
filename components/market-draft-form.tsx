@@ -150,15 +150,18 @@ function toBase64(value: Uint8Array): string {
 async function resolveCollateral(): Promise<{ mint?: string; message: string }> {
   try {
     const protocolResponse = await fetch("/api/protocol", { cache: "no-store" });
+    if (!protocolResponse.ok) {
+      return { message: "Protocol verification is unavailable. Collateral preparation is disabled." };
+    }
     const protocol = await protocolResponse.json() as { deployed?: boolean; collateralMint?: string };
     if (protocol.deployed && protocol.collateralMint) {
       return { mint: protocol.collateralMint, message: "Loaded from the deployed protocol config." };
     }
 
     const networkResponse = await fetch("/api/network", { cache: "no-store" });
-    const network = await networkResponse.json() as { wrappedCookMint?: string; error?: string };
-    if (!networkResponse.ok || !network.wrappedCookMint) {
-      return { message: network.error ?? "Wrapped COOK could not be resolved." };
+    const network = await networkResponse.json() as { healthy?: boolean; wrappedCookMint?: string; collateralError?: string; error?: string };
+    if (!networkResponse.ok || !network.healthy || !network.wrappedCookMint) {
+      return { message: network.collateralError ?? network.error ?? "Cookie Chain collateral could not be verified." };
     }
     return { mint: network.wrappedCookMint, message: "Resolved from the Cookiescan canonical asset registry." };
   } catch {

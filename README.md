@@ -23,6 +23,7 @@ A prediction-market application for Cookie Chain, with a Next.js frontend and an
 - Read-only Cookie Chain protocol discovery with config owner and discriminator verification.
 - Read-only market discovery at `/api/protocol?markets=true`, with account size, discriminator, and market PDA verification. Integer balances and timestamps are returned as decimal strings to preserve precision. Homepage examples are explicitly labeled as demos.
 - Dynamic wrapped COOK discovery through Cookiescan's canonical asset registry.
+- Registry outages are reported separately from RPC health. Unsigned preparation stays disabled when protocol or network verification fails.
 - Frontend PDA derivation and unsigned instruction builders for every current protocol instruction.
 
 ## Run locally
