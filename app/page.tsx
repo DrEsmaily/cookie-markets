@@ -3,6 +3,7 @@ import { MarketCard } from "@/components/market-card";
 import { WalletButton } from "@/components/wallet-button";
 import { NetworkStatus } from "@/components/network-status";
 import { ProtocolStatus } from "@/components/protocol-status";
+import { LiveMarketList } from "@/components/live-market-list";
 import { COOKIE_CHAIN } from "@/lib/cookie-chain-config";
 import { featuredMarkets } from "@/lib/markets";
 
@@ -27,7 +28,8 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="market-section" id="markets">
+      <div id="markets"><LiveMarketList /></div>
+      <section className="market-section">
         <div className="section-heading">
           <div><p className="eyebrow">DEMO MARKETS · TRADING DISABLED</p><h2>What are you certain about?</h2></div>
           <button type="button" className="filter-button">All categories <span>⌄</span></button>
