@@ -254,7 +254,7 @@ async function main() {
   await assertBalances(600_000_000, 400_000_000, 400_000_000, 399_999_999);
   await send([new TransactionInstruction({ programId: tokenProgram, keys: [meta(userYes, true), meta(yesMint, true), meta(admin.publicKey, false, true)], data: Buffer.concat([Buffer.from([8]), integer(1)]) })]);
   await send([instruction("merge_positions", positionAccounts, integer(399_999_999))]);
-  assert.equal((await connection.getTokenAccountBalance(userCollateral)).value.amount, "999999998");
+  assert.equal((await connection.getTokenAccountBalance(userCollateral)).value.amount, "999999999");
   for (const account of [userYes, userNo, vault]) assert.equal((await connection.getTokenAccountBalance(account)).value.amount, "0");
   assert.equal((await connection.getAccountInfo(market)).data.readBigUInt64LE(298), 0n);
   console.log("Collateral custody passed: split, partial merge, submitted rollback after the first burn, and complete-set withdrawal.");
