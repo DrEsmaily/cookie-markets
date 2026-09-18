@@ -93,6 +93,54 @@ test("bid decoder verifies collateral, custody identity, layout, and fee-inclusi
   assert.throws(() => decodeBidOrder(bid.order, { ...account, data: overflow }, market));
 });
 
+test("bid discovery verifies remaining fee budget and sorts best buy price first", async () => {
+  const { readVerifiedBids } = require("../.test-build/protocol-reader.js");
+  const market = { address: addresses.market.toBase58(), collateralMint: collateralMint.toBase58(), yesMint: addresses.yesMint.toBase58(), noMint: addresses.noMint.toBase58(), closesAt: "2000000000" };
+  const orders = [1n, 2n].map((nonce) => {
+    const bid = client.deriveBidAddresses(addresses.market, creator, nonce);
+    const data = Buffer.alloc(213);
+    createHash("sha256").update("account:BidOrder").digest().copy(data, 0, 0, 8);
+    for (const [key, offset] of [[addresses.market, 8], [creator, 40], [addresses.yesMint, 72], [collateralMint, 104], [user, 136]]) key.toBuffer().copy(data, offset);
+    for (const [value, offset] of [[nonce, 168], [80n, 176], [30n, 184], [nonce * 250000n, 192], [2000000000n, 200]]) data.writeBigUInt64LE(value, offset);
+    data.writeUInt16LE(30, 208);
+    data[211] = bid.bump;
+    data[212] = bid.escrowBump;
+    return { pubkey: bid.order, account: { owner: client.COOKIE_MARKETS_PROGRAM_ID, data }, bid };
+  });
+  const escrows = orders.map(({ bid }, index) => {
+    const data = Buffer.alloc(165);
+    collateralMint.toBuffer().copy(data, 0);
+    bid.order.toBuffer().copy(data, 32);
+    data.writeBigUInt64LE(index === 0 ? 12n : 25n, 64);
+    data[108] = 1;
+    return { owner: client.TOKEN_PROGRAM_ID, data };
+  });
+  const connection = {
+    getProgramAccounts: async (program, options) => {
+      assert.ok(program.equals(client.COOKIE_MARKETS_PROGRAM_ID));
+      assert.deepEqual(options.filters, [{ dataSize: 213 }, { memcmp: { offset: 8, bytes: market.address } }]);
+      return orders;
+    },
+    getMultipleAccountsInfo: async (keys) => {
+      assert.deepEqual(keys, orders.map(({ bid }) => bid.escrow));
+      return escrows;
+    },
+  };
+  assert.deepEqual((await readVerifiedBids(connection, market)).map(order => order.price), ["500000", "250000"]);
+  escrows[1].data.writeBigUInt64LE(24n, 64);
+  await assert.rejects(readVerifiedBids(connection, market), /balance/);
+  orders[1].account.data[210] = 1;
+  escrows[1].data.writeBigUInt64LE(0n, 64);
+  assert.equal((await readVerifiedBids(connection, market))[0].cancelled, true);
+  for (const offset of [0, 32, 108]) {
+    escrows[0].data[offset] ^= 1;
+    await assert.rejects(readVerifiedBids(connection, market), /custody/);
+    escrows[0].data[offset] ^= 1;
+  }
+  await assert.rejects(readVerifiedBids({ ...connection, getMultipleAccountsInfo: async () => [] }, market), /Incomplete/);
+  await assert.rejects(readVerifiedBids({ ...connection, getProgramAccounts: async () => Array(1001).fill(orders[0]) }, market), /Too many/);
+});
+
 test("ask builders match Anchor layout, account permissions, and full-width nonces", async () => {
   const identity = { market: addresses.market, maker: creator, nonce: marketNonce, shareMint: addresses.yesMint };
   const ask = client.deriveAskAddresses(identity.market, identity.maker, identity.nonce);
