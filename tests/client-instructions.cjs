@@ -36,6 +36,107 @@ function unsigned(value) {
   return bytes;
 }
 
+test("ask builders match Anchor layout, account permissions, and full-width nonces", async () => {
+  const identity = { market: addresses.market, maker: creator, nonce: marketNonce, shareMint: addresses.yesMint };
+  const ask = client.deriveAskAddresses(identity.market, identity.maker, identity.nonce);
+  const expected = PublicKey.findProgramAddressSync([Buffer.from("ask"), identity.market.toBuffer(), creator.toBuffer(), unsigned(marketNonce)], client.COOKIE_MARKETS_PROGRAM_ID)[0];
+  assert.ok(ask.order.equals(expected));
+  assert.ok(ask.escrow.equals(PublicKey.findProgramAddressSync([Buffer.from("ask_escrow"), expected.toBuffer()], client.COOKIE_MARKETS_PROGRAM_ID)[0]));
+  for (const [side, mint, tag] of [["yes", addresses.yesMint, 0], ["no", addresses.noMint, 1]]) {
+    assertInstruction(await client.buildPlaceAskInstruction({ creator, marketNonce, maker: creator, nonce: marketNonce, collateralMint, makerShares: userYes, side, shares: 80n, price: 500000n, expiresAt: 2000000000n }), "place_ask",
+      [[client.deriveConfigAddress()], [addresses.market], [ask.order, true], [collateralMint], [mint], [ask.escrow, true], [userYes, true], [creator, true, true], [client.TOKEN_PROGRAM_ID], [SystemProgram.programId]],
+      Buffer.concat([unsigned(marketNonce), Buffer.from([tag]), unsigned(80n), unsigned(500000n), unsigned(2000000000n)]));
+  }
+  assertInstruction(await client.buildFillAskInstruction({ ...identity, collateralMint, taker: user, takerCollateral: userCollateral, makerCollateral: userNo, feeCollateral: userYes, takerShares: userYes, shares: 30n, maximumDebit: 16n }), "fill_ask",
+    [[identity.market], [ask.order, true], [collateralMint], [identity.shareMint], [ask.escrow, true], [userCollateral, true], [userNo, true], [userYes, true], [userYes, true], [user, false, true], [client.TOKEN_PROGRAM_ID]], Buffer.concat([unsigned(30n), unsigned(16n)]));
+  assertInstruction(await client.buildCancelAskInstruction({ ...identity, makerShares: userYes }), "cancel_ask",
+    [[ask.order, true], [identity.shareMint], [ask.escrow, true], [userYes, true], [creator, false, true], [client.TOKEN_PROGRAM_ID]]);
+  const place = { creator, marketNonce, maker: creator, nonce: 1n, collateralMint, makerShares: userYes, side: "yes", shares: 80n, price: 500000n, expiresAt: 2000000000n };
+  for (const invalid of [{ side: "invalid" }, { shares: 0n }, { shares: marketNonce + 1n }, { price: 0n }, { price: 1000001n }, { expiresAt: 0n }, { expiresAt: 9223372036854775808n }, { nonce: -1n }]) {
+    await assert.rejects(client.buildPlaceAskInstruction({ ...place, ...invalid }), RangeError);
+  }
+  const fill = { ...identity, collateralMint, taker: user, takerCollateral: userCollateral, makerCollateral: userNo, feeCollateral: userYes, takerShares: userYes, shares: 1n, maximumDebit: 1n };
+  for (const invalid of [{ shares: 0n }, { maximumDebit: 0n }, { maximumDebit: marketNonce + 1n }, { taker: creator }]) await assert.rejects(client.buildFillAskInstruction({ ...fill, ...invalid }));
+});
+
+test("ask decoder and discovery reject corrupted custody bindings and limits", async () => {
+  const { decodeAskOrder } = require("../.test-build/protocol-accounts.js");
+  const market = { address: addresses.market.toBase58(), yesMint: addresses.yesMint.toBase58(), noMint: addresses.noMint.toBase58(), closesAt: "2000000000" };
+  const ask = client.deriveAskAddresses(addresses.market, creator, marketNonce);
+  const data = Buffer.alloc(181);
+  createHash("sha256").update("account:AskOrder").digest().copy(data, 0, 0, 8);
+  addresses.market.toBuffer().copy(data, 8);
+  creator.toBuffer().copy(data, 40);
+  addresses.yesMint.toBuffer().copy(data, 72);
+  user.toBuffer().copy(data, 104);
+  for (const [offset, value] of [[136, marketNonce], [144, 80n], [152, 30n], [160, 500000n], [168, 1900000000n]]) data.writeBigUInt64LE(value, offset);
+  data.writeUInt16LE(30, 176);
+  data[179] = ask.bump;
+  data[180] = ask.escrowBump;
+  const account = { owner: client.COOKIE_MARKETS_PROGRAM_ID, data };
+  const decoded = decodeAskOrder(ask.order, account, market);
+  assert.equal(decoded.remainingShares, "50");
+  assert.equal(decoded.nonce, marketNonce.toString());
+  assert.equal(decoded.side, "yes");
+  assert.equal(decoded.cancelled, false);
+  assert.equal(decoded.feeRecipient, user.toBase58());
+  assert.throws(() => decodeAskOrder(user, account, market));
+  assert.throws(() => decodeAskOrder(ask.order, { ...account, owner: user }, market));
+  assert.throws(() => decodeAskOrder(ask.order, { ...account, data: data.subarray(0, 180) }, market));
+  for (const offset of [0, 8, 40, 72, 136, 179, 180]) {
+    const corrupt = Buffer.from(data);
+    corrupt[offset] ^= 255;
+    assert.throws(() => decodeAskOrder(ask.order, { ...account, data: corrupt }, market));
+  }
+  for (const [offset, value] of [[144, 0n], [152, 81n], [160, 0n], [160, 1000001n], [168, 2000000001n]]) {
+    const corrupt = Buffer.from(data);
+    corrupt.writeBigUInt64LE(value, offset);
+    assert.throws(() => decodeAskOrder(ask.order, { ...account, data: corrupt }, market));
+  }
+  for (const [offset, value] of [[176, 65535], [178, 2]]) {
+    const corrupt = Buffer.from(data);
+    if (offset === 176) corrupt.writeUInt16LE(value, offset); else corrupt[offset] = value;
+    assert.throws(() => decodeAskOrder(ask.order, { ...account, data: corrupt }, market));
+  }
+  const cancelled = Buffer.from(data);
+  cancelled[178] = 1;
+  assert.equal(decodeAskOrder(ask.order, { ...account, data: cancelled }, market).cancelled, true);
+  const { readVerifiedAsks } = require("../.test-build/protocol-reader.js");
+  const escrowData = Buffer.alloc(165);
+  addresses.yesMint.toBuffer().copy(escrowData, 0);
+  ask.order.toBuffer().copy(escrowData, 32);
+  escrowData.writeBigUInt64LE(50n, 64);
+  escrowData[108] = 1;
+  const escrowAccount = { owner: client.TOKEN_PROGRAM_ID, data: escrowData };
+  const connection = {
+    async getProgramAccounts(program, options) {
+      assert.ok(program.equals(client.COOKIE_MARKETS_PROGRAM_ID));
+      assert.deepEqual(options.filters, [{ dataSize: 181 }, { memcmp: { offset: 8, bytes: market.address } }]);
+      return [{ pubkey: ask.order, account }];
+    },
+    async getMultipleAccountsInfo(keys) {
+      assert.equal(keys.length, 1);
+      assert.ok(keys[0].equals(ask.escrow));
+      return [escrowAccount];
+    },
+  };
+  assert.equal((await readVerifiedAsks(connection, market))[0].remainingShares, "50");
+  for (const replacement of [null, { ...escrowAccount, owner: user }, { ...escrowAccount, data: escrowData.subarray(0, 164) }]) {
+    await assert.rejects(readVerifiedAsks({ ...connection, async getMultipleAccountsInfo() { return [replacement]; } }, market));
+  }
+  for (const offset of [0, 32, 108]) {
+    const corrupt = Buffer.from(escrowData);
+    corrupt[offset] ^= 255;
+    await assert.rejects(readVerifiedAsks({ ...connection, async getMultipleAccountsInfo() { return [{ ...escrowAccount, data: corrupt }]; } }, market));
+  }
+  const shortBalance = Buffer.from(escrowData);
+  shortBalance.writeBigUInt64LE(49n, 64);
+  await assert.rejects(readVerifiedAsks({ ...connection, async getMultipleAccountsInfo() { return [{ ...escrowAccount, data: shortBalance }]; } }, market));
+  await assert.rejects(readVerifiedAsks({ ...connection, async getMultipleAccountsInfo() { return []; } }, market));
+  await assert.rejects(readVerifiedAsks({ ...connection, async getProgramAccounts() { return Array(1001).fill({ pubkey: ask.order, account }); } }, market));
+  assert.deepEqual(await readVerifiedAsks({ ...connection, async getProgramAccounts() { return []; } }, market), []);
+});
+
 test("PDA derivation preserves the full unsigned nonce", () => {
   const expected = PublicKey.findProgramAddressSync([Buffer.from("market"), creator.toBuffer(), unsigned(marketNonce)], client.COOKIE_MARKETS_PROGRAM_ID)[0];
   assert.ok(addresses.market.equals(expected));

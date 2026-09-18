@@ -4,6 +4,12 @@ const { test } = require("node:test");
 const url = `${process.env.TEST_APP_URL ?? "http://127.0.0.1:3001"}/api/positions/prepare`;
 const base = { market: "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx", user: "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx", amount: "1", action: "split" };
 
+test("HTTP ask discovery rejects invalid market addresses before accessing RPC", async () => {
+  const response = await fetch(`${process.env.TEST_APP_URL ?? "http://127.0.0.1:3001"}/api/protocol?asks=not-a-public-key`, { signal: AbortSignal.timeout(10000) });
+  assert.equal(response.status, 400);
+  assert.ok((await response.json()).error);
+});
+
 for (const [name, body, status] of [
   ["malformed JSON", "{", 400],
   ["missing fields", "{}", 400],
