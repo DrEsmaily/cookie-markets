@@ -3,6 +3,31 @@ import { COOKIE_CHAIN } from "./cookie-chain-config";
 import { COOKIE_MARKETS_PROGRAM_ID, TOKEN_PROGRAM_ID, deriveConfigAddress } from "./cookie-markets-program";
 import { decodeAskOrder, decodeBidOrder, decodeProtocolConfig, VerifiedMarket } from "./protocol-accounts";
 import { quoteOrderFill } from "./trading-math";
+import { deriveAssociatedTokenAddress } from "./token-instructions";
+
+export async function readVerifiedPosition(
+  connection: Pick<Connection, "getMultipleAccountsInfo">,
+  market: VerifiedMarket,
+  user: PublicKey,
+) {
+  const mints = [market.collateralMint, market.yesMint, market.noMint].map((mint) => new PublicKey(mint));
+  const addresses = mints.map((mint) => deriveAssociatedTokenAddress(mint, user));
+  const accounts = await connection.getMultipleAccountsInfo(addresses, "confirmed");
+  if (accounts.length !== addresses.length) throw new Error("Incomplete position account response.");
+  const balances = accounts.map((account, index) => {
+    if (!account) return "0";
+    if (!account.owner.equals(TOKEN_PROGRAM_ID) || account.data.length !== 165 || account.data[108] !== 1
+      || !new PublicKey(account.data.subarray(0, 32)).equals(mints[index])
+      || !new PublicKey(account.data.subarray(32, 64)).equals(user)) throw new Error("Position token account identity or state is invalid.");
+    return account.data.readBigUInt64LE(64).toString();
+  });
+  return {
+    user: user.toBase58(), market: market.address,
+    collateral: { address: addresses[0].toBase58(), mint: market.collateralMint, amountBaseUnits: balances[0] },
+    yes: { address: addresses[1].toBase58(), mint: market.yesMint, amountBaseUnits: balances[1] },
+    no: { address: addresses[2].toBase58(), mint: market.noMint, amountBaseUnits: balances[2] },
+  };
+}
 
 export async function readVerifiedProtocol(connection: Pick<Connection, "getGenesisHash" | "getAccountInfo">) {
   const configAddress = deriveConfigAddress();

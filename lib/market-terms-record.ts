@@ -1,6 +1,7 @@
 import { COOKIE_CHAIN } from "./cookie-chain-config";
 import { COOKIE_MARKETS_PROGRAM_ID } from "./cookie-markets-program";
-import { hashHex, hashMarketTerms, type MarketTerms } from "./market-terms";
+import { hashHex, hashMarketTerms, createPriceMarketTerms, selectPriceMarketEvidence, type MarketTerms, type PriceMarketSpec, type PriceObservation } from "./market-terms";
+import { PublicKey } from "@solana/web3.js";
 
 export type MarketTermsRecord = MarketTerms & {
   version: 1;
@@ -8,6 +9,39 @@ export type MarketTermsRecord = MarketTerms & {
   program: string;
   market: string;
 };
+
+export async function createPriceEvidenceRecord(input: {
+  market: { address: string; questionHash: string; rulesHash: string };
+  spec: PriceMarketSpec;
+  observations: readonly PriceObservation[];
+  publishedAt: string;
+  originalResponse: string;
+}) {
+  if (new PublicKey(input.market.address).toBase58() !== input.market.address) throw new Error("Invalid market address.");
+  const terms = createPriceMarketTerms(input.spec);
+  const termsRecord = await createMarketTermsRecord(input.market.address, terms);
+  await verifyPublishedMarketTerms([termsRecord], input.market);
+  const responseBytes = new TextEncoder().encode(input.originalResponse);
+  if (!input.originalResponse.trim() || responseBytes.length > 1_048_576) throw new RangeError("Original evidence response must contain 1–1048576 bytes.");
+  const decision = selectPriceMarketEvidence(input.spec, input.observations, input.publishedAt);
+  const record = {
+    version: 1 as const,
+    genesisHash: termsRecord.genesisHash,
+    program: termsRecord.program,
+    market: termsRecord.market,
+    questionHash: input.market.questionHash,
+    rulesHash: input.market.rulesHash,
+    publishedAt: input.publishedAt,
+    spec: { ...input.spec, source: input.spec.source.trim() },
+    observations: input.observations.map((observation) => ({ ...observation })),
+    decision,
+    originalResponse: input.originalResponse,
+    originalResponseHash: hashHex(new Uint8Array(await crypto.subtle.digest("SHA-256", responseBytes))),
+  };
+  const serialized = JSON.stringify(record);
+  const evidenceHash = hashHex(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(serialized))));
+  return { record, serialized, evidenceHash };
+}
 
 export async function createMarketTermsRecord(market: string, terms: MarketTerms): Promise<MarketTermsRecord> {
   const normalized = await hashMarketTerms(terms);

@@ -11,6 +11,65 @@ export type PriceObservation = {
   asset: "BTC" | "ETH"; source: string; priceUsd: string; observedAt: string;
 };
 
+export function coinbasePriceMarketSpec(asset: "BTC" | "ETH", targetUsd: string, settlesAt: string): PriceMarketSpec {
+  const spec = { asset, targetUsd, settlesAt, source: `Coinbase Exchange ${asset}-USD 60-second candle CLOSE for [settlement-60s, settlement); observation timestamp denotes bucket end, not last-trade time` };
+  createPriceMarketTerms(spec);
+  if (Date.parse(settlesAt) % 60_000 !== 0) throw new RangeError("Coinbase candle markets must settle at an exact UTC minute.");
+  return spec;
+}
+
+export function parseCoinbasePriceEvidence(spec: PriceMarketSpec, originalResponse: string): PriceObservation[] {
+  const expected = coinbasePriceMarketSpec(spec.asset, spec.targetUsd, spec.settlesAt);
+  if (spec.source !== expected.source) throw new RangeError("Market does not use the approved Coinbase candle methodology.");
+  if (new TextEncoder().encode(originalResponse).length > 65_536 || !/^[\[\],\s\d.eE+\-]+$/.test(originalResponse)) throw new RangeError("Invalid Coinbase candle response.");
+  const rows: unknown = JSON.parse(originalResponse.replace(/-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g, (number) => JSON.stringify(number)));
+  if (!Array.isArray(rows) || rows.length > 300) throw new RangeError("Invalid Coinbase candle response.");
+  const bucketStart = BigInt(Date.parse(spec.settlesAt) / 1000) - BigInt(60);
+  const observations: PriceObservation[] = [];
+  for (const row of rows) {
+    if (!Array.isArray(row) || row.length !== 6 || row.some((value) => typeof value !== "string") || !/^\d+$/.test(row[0])) throw new RangeError("Invalid Coinbase candle row.");
+    if (BigInt(row[0]) !== bucketStart) continue;
+    for (const index of [1, 2, 3, 4]) priceUsdUnits(row[index]);
+    const low = priceUsdUnits(row[1]);
+    const high = priceUsdUnits(row[2]);
+    if (low > high || [3, 4].some((index) => priceUsdUnits(row[index]) < low || priceUsdUnits(row[index]) > high)) throw new RangeError("Inconsistent candle price bounds.");
+    observations.push({ asset: spec.asset, source: spec.source, priceUsd: row[4], observedAt: spec.settlesAt });
+  }
+  return observations;
+}
+
+export async function collectCoinbasePriceEvidence(spec: PriceMarketSpec, now = Date.now()) {
+  const expected = coinbasePriceMarketSpec(spec.asset, spec.targetUsd, spec.settlesAt);
+  if (spec.source !== expected.source) throw new RangeError("Market does not use the approved Coinbase candle methodology.");
+  const settlement = Date.parse(spec.settlesAt);
+  if (!Number.isFinite(now) || now < settlement + 60_000 || now > settlement + 86_400_000) throw new RangeError("Collect evidence between one minute and 24 hours after settlement.");
+  const url = new URL(`https://api.exchange.coinbase.com/products/${spec.asset}-USD/candles`);
+  url.searchParams.set("granularity", "60");
+  url.searchParams.set("start", new Date(settlement - 60_000).toISOString());
+  url.searchParams.set("end", spec.settlesAt);
+  const response = await fetch(url, { cache: "no-store", redirect: "error", signal: AbortSignal.timeout(10_000) });
+  if (!response.ok) throw new Error(`Coinbase evidence request failed (${response.status}). Retry later; do not substitute another source.`);
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("Coinbase evidence response is empty.");
+  const decoder = new TextDecoder();
+  let size = 0;
+  let originalResponse = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > 65_536) { await reader.cancel(); throw new RangeError("Coinbase evidence response is too large."); }
+      originalResponse += decoder.decode(value, { stream: true });
+    }
+    originalResponse += decoder.decode();
+  } finally { reader.releaseLock(); }
+  const observations = parseCoinbasePriceEvidence(spec, originalResponse);
+  const collectedAt = new Date().toISOString();
+  if (Date.parse(collectedAt) > settlement + 86_400_000) throw new RangeError("Evidence collection deadline passed during retrieval.");
+  return { url: url.toString(), collectedAt, originalResponse, observations };
+}
+
 export function priceUsdUnits(value: string): bigint {
   if (!/^(0|[1-9]\d{0,8})(\.\d{1,8})?$/.test(value)) throw new RangeError("USD price must be a positive decimal with at most eight fractional digits.");
   const [whole, fraction = ""] = value.split(".");
