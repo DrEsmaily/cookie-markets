@@ -2,6 +2,8 @@
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Burn, Mint, MintTo, Token, TokenAccount, TransferChecked};
+mod orders;
+pub use orders::*;
 
 declare_id!("US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx");
 
@@ -16,6 +18,25 @@ const MAX_FEE_BPS: u16 = 1_000;
 #[program]
 pub mod cookie_markets {
     use super::*;
+
+    pub fn place_ask(
+        ctx: Context<PlaceAsk>,
+        nonce: u64,
+        side: PositionSide,
+        shares: u64,
+        price: u64,
+        expires_at: i64,
+    ) -> Result<()> {
+        orders::place(ctx, nonce, side, shares, price, expires_at)
+    }
+
+    pub fn fill_ask(ctx: Context<FillAsk>, shares: u64, maximum_debit: u64) -> Result<()> {
+        orders::fill(ctx, shares, maximum_debit)
+    }
+
+    pub fn cancel_ask(ctx: Context<CancelAsk>) -> Result<()> {
+        orders::cancel(ctx)
+    }
 
     pub fn initialize_protocol(
         ctx: Context<InitializeProtocol>,
