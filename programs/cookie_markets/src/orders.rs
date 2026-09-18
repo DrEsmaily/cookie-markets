@@ -212,7 +212,7 @@ pub struct FillAsk<'info> {
     pub taker_collateral: Box<Account<'info, TokenAccount>>,
     #[account(mut, token::mint = collateral_mint, constraint = maker_collateral.owner == order.maker)]
     pub maker_collateral: Box<Account<'info, TokenAccount>>,
-    #[account(mut, token::mint = collateral_mint, constraint = fee_collateral.owner == order.fee_recipient)]
+    #[account(mut, dup, token::mint = collateral_mint, constraint = fee_collateral.owner == order.fee_recipient)]
     pub fee_collateral: Box<Account<'info, TokenAccount>>,
     #[account(mut, token::mint = share_mint, token::authority = taker)]
     pub taker_shares: Box<Account<'info, TokenAccount>>,
