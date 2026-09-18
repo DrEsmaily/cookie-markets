@@ -38,6 +38,17 @@ export function PositionPreparationForm({ market, terms, depositsAllowed = true 
     finally { setIsReading(false); }
   }
 
+  async function publishTerms() {
+    clearPreview(); setIsPreparing(true);
+    try {
+      const response = await fetch("/api/protocol", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ market, question, resolutionSource, resolutionRules }), signal: AbortSignal.timeout(15_000) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Terms publication failed.");
+      window.location.reload();
+    } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not publish readable terms."); }
+    finally { setIsPreparing(false); }
+  }
+
   function clearPreview() { setPreparation(undefined); setError(undefined); }
 
   async function prepare(event: FormEvent<HTMLFormElement>) {
@@ -80,6 +91,8 @@ export function PositionPreparationForm({ market, terms, depositsAllowed = true 
         <label className="form-field"><span>Exact settlement rules</span><textarea value={resolutionRules} onChange={(event) => setResolutionRules(event.target.value)} rows={5} required /></label>
         <label><input type="checkbox" checked={wrapNative} onChange={(event) => setWrapNative(event.target.checked)} /> Wrap native COOK for this deposit (native-mint collateral only)</label>
         <p>Deposits are refused if these readable terms do not match the on-chain question and rules hashes.</p>
+        <button className="secondary-action" type="button" disabled={isPreparing || !question || !resolutionSource || !resolutionRules} onClick={() => void publishTerms()}>Publish these exact public terms</button>
+        <p>Publication stores public text only after verifying its on-chain hashes. It requires operator-configured persistent storage, not a wallet signature.</p>
       </> : null}
       <button className="primary-action form-action" type="submit" disabled={isPreparing}>{isPreparing ? "Simulating…" : "Simulate unsigned transaction"}</button>
       {error ? <p className="form-error" role="alert">{error}</p> : null}

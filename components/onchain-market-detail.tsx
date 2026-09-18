@@ -8,7 +8,8 @@ import { formatTokenAmount } from "@/lib/token-amounts";
 import { PositionPreparationForm } from "@/components/position-preparation-form";
 import { OrderPreparationForm } from "@/components/order-preparation-form";
 import { verifyPublishedMarketTerms, type MarketTermsRecord } from "@/lib/market-terms-record";
-import { publishedMarketTerms } from "@/lib/published-market-terms";
+import { readPublishedMarketTerms } from "@/lib/published-market-terms";
+import { PriceEvidenceReview } from "@/components/price-evidence-review";
 
 export async function OnchainMarketDetail({ address }: { address: string }) {
   try {
@@ -22,7 +23,7 @@ export async function OnchainMarketDetail({ address }: { address: string }) {
     let terms: MarketTermsRecord | undefined;
     let termsError: string | undefined;
     try {
-      terms = await verifyPublishedMarketTerms(publishedMarketTerms, market);
+      terms = await verifyPublishedMarketTerms(await readPublishedMarketTerms(market.address), market);
     } catch (error) {
       termsError = error instanceof Error ? error.message : "Published terms verification failed.";
     }
@@ -45,6 +46,7 @@ export async function OnchainMarketDetail({ address }: { address: string }) {
         </dl>
         <PositionPreparationForm key={market.address} market={market.address} terms={terms} depositsAllowed={!termsError} />
         <OrderPreparationForm key={`orders-${market.address}`} market={market.address} terms={terms} tradingAllowed={!termsError} />
+        <PriceEvidenceReview key={`evidence-${market.address}`} market={market.address} settlesAt={new Date(Number(market.closesAt) * 1000).toISOString()} />
       </section>
     );
   } catch (error) {
