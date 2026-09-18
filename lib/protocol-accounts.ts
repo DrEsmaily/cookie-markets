@@ -83,3 +83,5 @@ export function decodeAskOrder(address: PublicKey, account: ProgramAccount, mark
     expiresAt: expiresAt.toString(), cancelled: data[178] === 1,
   };
 }
+
+export type VerifiedAsk = ReturnType<typeof decodeAskOrder>;
