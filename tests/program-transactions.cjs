@@ -172,11 +172,73 @@ async function testClientPositions(config, collateralMint) {
   await send(deposit.instructions);
   for (const account of [deposit.userYes, deposit.userNo, vault]) assert.equal((await connection.getTokenAccountBalance(account)).value.amount, "100");
   await testOrders(config, collateralMint, market, yesMint, noMint, deposit.userYes, deposit.userCollateral, vault, closesAt);
+  await testBids(collateralMint, market, yesMint, noMint, deposit.userYes, deposit.userNo, deposit.userCollateral, vault, closesAt);
   const withdrawal = await buildPositionTransactionInstructions({ ...params, action: "merge" });
   await send(withdrawal.instructions);
-  assert.equal((await connection.getTokenAccountBalance(deposit.userCollateral)).value.amount, "126");
+  assert.equal((await connection.getTokenAccountBalance(deposit.userCollateral)).value.amount, "160");
   for (const account of [deposit.userYes, deposit.userNo, vault]) assert.equal((await connection.getTokenAccountBalance(account)).value.amount, "0");
   console.log("Frontend transaction builders passed on validator: idempotent ATA setup, exact collateral deposit, YES/NO issuance, and complete-set withdrawal.");
+}
+
+async function testBids(collateralMint, market, yesMint, noMint, sellerYes, sellerNo, sellerCollateral, backingVault, closesAt) {
+  const client = require("../.test-build/cookie-markets-program.js");
+  const { decodeBidOrder, decodeMarketAccount } = require("../.test-build/protocol-accounts.js");
+  const verifiedMarket = decodeMarketAccount(market, await connection.getAccountInfo(market));
+  const buyerCollateral = await createTokenAccount(collateralMint, outsider.publicKey);
+  const mintBudget = (amount) => new TransactionInstruction({ programId: tokenProgram, keys: [meta(collateralMint, true), meta(buyerCollateral, true), meta(admin.publicKey, false, true)], data: Buffer.concat([Buffer.from([7]), integer(amount)]) });
+  for (const [side, shareMint, sellerShares, nonce, shares, price, budget, firstShares, firstPayment, secondShares, secondPayment, refund] of [
+    ["yes", yesMint, sellerYes, 1n, 80n, 500000n, 41n, 30n, 15n, 20n, 10n, 15n],
+    ["no", noMint, sellerNo, 2n, 20n, 333333n, 8n, 10n, 4n, 10n, 3n, 0n],
+  ]) {
+    const buyerShares = await createTokenAccount(shareMint, outsider.publicKey);
+    const identity = { market, maker: outsider.publicKey, nonce, collateralMint };
+    const { order, escrow } = client.deriveBidAddresses(market, outsider.publicKey, nonce);
+    const beforeBuyer = BigInt((await connection.getTokenAccountBalance(buyerCollateral)).value.amount);
+    await send([mintBudget(budget)]);
+    const place = await client.buildPlaceBidInstruction({ creator: admin.publicKey, marketNonce: 5n, maker: outsider.publicKey, nonce, collateralMint, makerCollateral: buyerCollateral, side, shares, price, expiresAt: BigInt(closesAt) });
+    await send([place], [outsider]);
+    assert.equal((await connection.getTokenAccountBalance(escrow)).value.amount, budget.toString());
+    assert.equal((await connection.getTokenAccountBalance(buyerCollateral)).value.amount, beforeBuyer.toString());
+    await expectProgramError([place], [outsider], "already in use");
+    const params = { ...identity, shareMint, taker: admin.publicKey, takerShares: sellerShares, makerShares: buyerShares, takerCollateral: sellerCollateral, feeCollateral: sellerCollateral };
+    const fill = (amount, minimumProceeds) => client.buildFillBidInstruction({ ...params, shares: amount, minimumProceeds });
+    await expectProgramError([await fill(shares + 1n, 0n)], [admin], "InvalidAmount");
+    await expectProgramError([await fill(firstShares, firstPayment + 1n)], [admin], "Slippage");
+    const substituted = await fill(firstShares, firstPayment);
+    substituted.keys[3] = meta(side === "yes" ? noMint : yesMint);
+    await expectProgramError([substituted], [admin], "ConstraintHasOne");
+    const wrongFee = await fill(firstShares, firstPayment);
+    wrongFee.keys[8] = meta(buyerCollateral, true);
+    await expectProgramError([wrongFee], [admin], "ConstraintRaw");
+    const emptyShares = await createTokenAccount(shareMint);
+    const failed = await client.buildFillBidInstruction({ ...params, takerShares: emptyShares, shares: firstShares, minimumProceeds: firstPayment });
+    await expectCommittedFailure([failed], [admin]);
+    assert.equal((await connection.getAccountInfo(order)).data.readBigUInt64LE(184), 0n);
+    assert.equal((await connection.getTokenAccountBalance(escrow)).value.amount, budget.toString());
+    await send([await fill(firstShares, firstPayment)]);
+    assert.equal((await connection.getTokenAccountBalance(escrow)).value.amount, (budget - firstPayment - 1n).toString());
+    await send([await fill(secondShares, secondPayment)]);
+    assert.equal((await connection.getTokenAccountBalance(escrow)).value.amount, refund.toString());
+    const decoded = decodeBidOrder(order, await connection.getAccountInfo(order), verifiedMarket);
+    assert.equal(decoded.filledShares, (firstShares + secondShares).toString());
+    assert.equal(decoded.side, side);
+    assert.equal((await connection.getTokenAccountBalance(buyerShares)).value.amount, decoded.filledShares);
+    const cancel = await client.buildCancelBidInstruction({ ...identity, makerCollateral: buyerCollateral });
+    const unauthorized = await client.buildCancelBidInstruction({ ...identity, maker: admin.publicKey, makerCollateral: sellerCollateral });
+    unauthorized.keys[0] = meta(order, true);
+    unauthorized.keys[2] = meta(escrow, true);
+    await expectProgramError([unauthorized], [admin], "ConstraintSeeds");
+    await send([cancel], [outsider]);
+    assert.equal((await connection.getTokenAccountBalance(buyerCollateral)).value.amount, (beforeBuyer + refund).toString());
+    assert.equal((await connection.getTokenAccountBalance(escrow)).value.amount, "0");
+    assert.equal(decodeBidOrder(order, await connection.getAccountInfo(order), verifiedMarket).cancelled, true);
+    await expectProgramError([cancel], [outsider], "Cancelled");
+    await expectProgramError([await fill(1n, 0n)], [admin], "Cancelled");
+    await send([new TransactionInstruction({ programId: tokenProgram, keys: [meta(buyerShares, true), meta(shareMint), meta(sellerShares, true), meta(outsider.publicKey, false, true)], data: Buffer.concat([Buffer.from([12]), integer(firstShares + secondShares), Buffer.from([9])]) })], [outsider]);
+    assert.equal((await connection.getTokenAccountBalance(backingVault)).value.amount, "100");
+  }
+  assert.equal((await connection.getTokenAccountBalance(sellerCollateral)).value.amount, "60");
+  console.log("Bid escrow passed: upfront fee-inclusive funding, YES/NO partial fills, seller fee-recipient aliasing, protection limits, rollback, cancellation refunds, and unchanged backing.");
 }
 
 async function testOrders(config, collateralMint, market, yesMint, noMint, makerShares, makerCollateral, backingVault, closesAt) {

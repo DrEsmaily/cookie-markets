@@ -36,6 +36,63 @@ function unsigned(value) {
   return bytes;
 }
 
+test("bid builders match Anchor layout and reject unsafe amounts", async () => {
+  const identity = { market: addresses.market, maker: creator, nonce: marketNonce, collateralMint };
+  const bid = client.deriveBidAddresses(identity.market, creator, marketNonce);
+  assert.ok(bid.order.equals(PublicKey.findProgramAddressSync([Buffer.from("bid"), addresses.market.toBuffer(), creator.toBuffer(), unsigned(marketNonce)], client.COOKIE_MARKETS_PROGRAM_ID)[0]));
+  assert.ok(bid.escrow.equals(PublicKey.findProgramAddressSync([Buffer.from("bid_escrow"), bid.order.toBuffer()], client.COOKIE_MARKETS_PROGRAM_ID)[0]));
+  const place = { creator, marketNonce, maker: creator, nonce: marketNonce, collateralMint, makerCollateral: userCollateral, side: "yes", shares: 80n, price: 500000n, expiresAt: 2000000000n };
+  for (const [side, mint, tag] of [["yes", addresses.yesMint, 0], ["no", addresses.noMint, 1]]) {
+    assertInstruction(await client.buildPlaceBidInstruction({ ...place, side }), "place_bid",
+      [[client.deriveConfigAddress()], [addresses.market], [bid.order, true], [collateralMint], [mint], [bid.escrow, true], [userCollateral, true], [creator, true, true], [client.TOKEN_PROGRAM_ID], [SystemProgram.programId]],
+      Buffer.concat([unsigned(marketNonce), Buffer.from([tag]), unsigned(80n), unsigned(500000n), unsigned(2000000000n)]));
+  }
+  const fill = { ...identity, shareMint: addresses.yesMint, taker: user, takerShares: userYes, makerShares: userNo, takerCollateral: userCollateral, feeCollateral: userCollateral, shares: 30n, minimumProceeds: 15n };
+  assertInstruction(await client.buildFillBidInstruction(fill), "fill_bid",
+    [[addresses.market], [bid.order, true], [collateralMint], [addresses.yesMint], [bid.escrow, true], [userYes, true], [userNo, true], [userCollateral, true], [userCollateral, true], [user, false, true], [client.TOKEN_PROGRAM_ID]], Buffer.concat([unsigned(30n), unsigned(15n)]));
+  assertInstruction(await client.buildCancelBidInstruction({ ...identity, makerCollateral: userCollateral }), "cancel_bid",
+    [[bid.order, true], [collateralMint], [bid.escrow, true], [userCollateral, true], [creator, false, true], [client.TOKEN_PROGRAM_ID]]);
+  for (const invalid of [{ side: "invalid" }, { shares: 0n }, { shares: marketNonce + 1n }, { price: 0n }, { price: 1000001n }, { expiresAt: 0n }, { expiresAt: 9223372036854775808n }, { nonce: -1n }]) await assert.rejects(client.buildPlaceBidInstruction({ ...place, ...invalid }), RangeError);
+  for (const invalid of [{ shares: 0n }, { minimumProceeds: -1n }, { minimumProceeds: marketNonce + 1n }, { taker: creator }]) await assert.rejects(client.buildFillBidInstruction({ ...fill, ...invalid }));
+});
+
+test("bid decoder verifies collateral, custody identity, layout, and fee-inclusive bounds", () => {
+  const { decodeBidOrder } = require("../.test-build/protocol-accounts.js");
+  const market = { address: addresses.market.toBase58(), collateralMint: collateralMint.toBase58(), yesMint: addresses.yesMint.toBase58(), noMint: addresses.noMint.toBase58(), closesAt: "2000000000" };
+  const bid = client.deriveBidAddresses(addresses.market, creator, marketNonce);
+  const data = Buffer.alloc(213);
+  createHash("sha256").update("account:BidOrder").digest().copy(data, 0, 0, 8);
+  for (const [key, offset] of [[addresses.market, 8], [creator, 40], [addresses.yesMint, 72], [collateralMint, 104], [user, 136]]) key.toBuffer().copy(data, offset);
+  for (const [value, offset] of [[marketNonce, 168], [80n, 176], [30n, 184], [500000n, 192], [2000000000n, 200]]) data.writeBigUInt64LE(value, offset);
+  data.writeUInt16LE(30, 208);
+  data[211] = bid.bump;
+  data[212] = bid.escrowBump;
+  const account = { owner: client.COOKIE_MARKETS_PROGRAM_ID, data };
+  assert.equal(decodeBidOrder(bid.order, account, market).remainingShares, "50");
+  assert.throws(() => decodeBidOrder(user, account, market));
+  assert.throws(() => decodeBidOrder(bid.order, { ...account, owner: user }, market));
+  assert.throws(() => decodeBidOrder(bid.order, { ...account, data: data.subarray(0, 212) }, market));
+  for (const offset of [0, 8, 40, 72, 104, 168, 211, 212]) {
+    const corrupted = Buffer.from(data);
+    corrupted[offset] ^= 1;
+    assert.throws(() => decodeBidOrder(bid.order, { ...account, data: corrupted }, market));
+  }
+  for (const [value, offset] of [[0n, 176], [81n, 184], [1000001n, 192], [2000000001n, 200]]) {
+    const corrupted = Buffer.from(data);
+    corrupted.writeBigUInt64LE(value, offset);
+    assert.throws(() => decodeBidOrder(bid.order, { ...account, data: corrupted }, market));
+  }
+  for (const [value, offset] of [[2, 210], [255, 209]]) {
+    const corrupted = Buffer.from(data);
+    corrupted[offset] = value;
+    assert.throws(() => decodeBidOrder(bid.order, { ...account, data: corrupted }, market));
+  }
+  const overflow = Buffer.from(data);
+  overflow.writeBigUInt64LE(marketNonce, 176);
+  overflow.writeBigUInt64LE(1000000n, 192);
+  assert.throws(() => decodeBidOrder(bid.order, { ...account, data: overflow }, market));
+});
+
 test("ask builders match Anchor layout, account permissions, and full-width nonces", async () => {
   const identity = { market: addresses.market, maker: creator, nonce: marketNonce, shareMint: addresses.yesMint };
   const ask = client.deriveAskAddresses(identity.market, identity.maker, identity.nonce);
