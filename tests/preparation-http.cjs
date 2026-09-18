@@ -4,6 +4,22 @@ const { test } = require("node:test");
 const url = `${process.env.TEST_APP_URL ?? "http://127.0.0.1:3001"}/api/positions/prepare`;
 const base = { market: "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx", user: "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx", amount: "1", action: "split" };
 
+for (const [body, status] of [["{", 400], ["{}", 400], [JSON.stringify({ market: "invalid", question: "Test?", resolutionSource: "Test", resolutionRules: "Test" }), 400], ["x".repeat(8193), 413]]) {
+  test(`HTTP terms publication rejects invalid request ${body.length} bytes`, async () => {
+    const response = await fetch(`${process.env.TEST_APP_URL ?? "http://127.0.0.1:3001"}/api/protocol`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: AbortSignal.timeout(10000) });
+    assert.equal(response.status, status);
+    assert.ok((await response.json()).error);
+  });
+}
+
+for (const change of [{ action: "unknown" }, { asset: "SOL" }, { targetUsd: "1e5" }, { settlesAt: "2030-09-30T18:00:01.000Z" }, { market: "invalid" }]) {
+  test(`HTTP price evidence rejects invalid input ${JSON.stringify(change)}`, async () => {
+    const response = await fetch(`${process.env.TEST_APP_URL ?? "http://127.0.0.1:3001"}/api/protocol`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "collect-price-evidence", market: base.market, asset: "BTC", targetUsd: "100000", settlesAt: "2030-09-30T18:00:00.000Z", ...change }), signal: AbortSignal.timeout(10000) });
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).serialized, undefined);
+  });
+}
+
 for (const query of ["position=invalid&user=invalid", `position=${base.market}`, `user=${base.user}`, `position=${base.market}&user=${base.user}&asks=${base.market}`]) {
   test(`HTTP position discovery rejects malformed or conflicting query ${query}`, async () => {
     const response = await fetch(`${process.env.TEST_APP_URL ?? "http://127.0.0.1:3001"}/api/protocol?${query}`, { signal: AbortSignal.timeout(10000) });

@@ -540,6 +540,33 @@ test("Coinbase evidence uses only the preceding closed minute and preserves raw 
   assert.throws(() => parseCoinbasePriceEvidence({ ...spec, source: "Other dataset" }, raw));
 });
 
+test("persistent public terms publish atomically and refuse corrupt or changed records", async () => {
+  const { mkdtemp, rm, writeFile } = require("node:fs/promises");
+  const { tmpdir } = require("node:os");
+  const { join } = require("node:path");
+  const { createMarketTermsRecord } = require("../.test-build/market-terms-record.js");
+  const { publishVerifiedMarketTerms, readPublishedMarketTerms } = require("../.test-build/published-market-terms.js");
+  const directory = await mkdtemp(join(tmpdir(), "cookie-terms-test-"));
+  try {
+    const terms = { question: "Test?", resolutionSource: "Test dataset", resolutionRules: "YES if test passes." };
+    const hashed = await hashMarketTerms(terms);
+    const market = { address: addresses.market.toBase58(), questionHash: hashHex(hashed.questionHash), rulesHash: hashHex(hashed.rulesHash) };
+    const record = await createMarketTermsRecord(market.address, terms);
+    assert.deepEqual(await readPublishedMarketTerms(market.address, directory), []);
+    const results = await Promise.all([publishVerifiedMarketTerms(record, market, directory), publishVerifiedMarketTerms(record, market, directory)]);
+    assert.equal(results.filter(result => result.created).length, 1);
+    assert.deepEqual(await readPublishedMarketTerms(market.address, directory), [record]);
+    await assert.rejects(publishVerifiedMarketTerms({ ...record, question: "Changed?" }, market, directory), /hashes/);
+    await assert.rejects(readPublishedMarketTerms(market.address, "relative-path"), /absolute/);
+    await assert.rejects(readPublishedMarketTerms("../escape", directory));
+    const path = join(directory, COOKIE_CHAIN.genesisHash, client.COOKIE_MARKETS_PROGRAM_ID.toBase58(), `${market.address}.json`);
+    await writeFile(path, JSON.stringify({ ...record, market: user.toBase58() }));
+    await assert.rejects(readPublishedMarketTerms(market.address, directory), /identify/);
+    await writeFile(path, "x".repeat(8193));
+    await assert.rejects(readPublishedMarketTerms(market.address, directory), /too large/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("readable market terms produce the exact committed hashes", async () => {
   const terms = { question: " Will this event happen? ", resolutionSource: " Public source ", resolutionRules: " Yes if the source reports the event; No otherwise. " };
   const hashed = await hashMarketTerms(terms);
