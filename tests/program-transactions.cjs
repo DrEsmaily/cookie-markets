@@ -33,11 +33,11 @@ async function send(instructions, signers = [admin]) {
   return sendAndConfirmTransaction(connection, new Transaction().add(...instructions), signers);
 }
 
-async function createTokenAccount(mint) {
+async function createTokenAccount(mint, owner = admin.publicKey) {
   const account = Keypair.generate();
   await send([
     SystemProgram.createAccount({ fromPubkey: admin.publicKey, newAccountPubkey: account.publicKey, lamports: await connection.getMinimumBalanceForRentExemption(165), space: 165, programId: tokenProgram }),
-    new TransactionInstruction({ programId: tokenProgram, keys: [meta(account.publicKey, true), meta(mint)], data: Buffer.concat([Buffer.from([18]), admin.publicKey.toBuffer()]) }),
+    new TransactionInstruction({ programId: tokenProgram, keys: [meta(account.publicKey, true), meta(mint)], data: Buffer.concat([Buffer.from([18]), owner.toBuffer()]) }),
   ], [admin, account]);
   return account.publicKey;
 }
@@ -171,11 +171,60 @@ async function testClientPositions(config, collateralMint) {
   await send([new TransactionInstruction({ programId: tokenProgram, keys: [meta(collateralMint, true), meta(deposit.userCollateral, true), meta(admin.publicKey, false, true)], data: Buffer.concat([Buffer.from([7]), integer(100)]) })]);
   await send(deposit.instructions);
   for (const account of [deposit.userYes, deposit.userNo, vault]) assert.equal((await connection.getTokenAccountBalance(account)).value.amount, "100");
+  await testOrders(config, collateralMint, market, yesMint, noMint, deposit.userYes, deposit.userCollateral, vault, closesAt);
   const withdrawal = await buildPositionTransactionInstructions({ ...params, action: "merge" });
   await send(withdrawal.instructions);
-  assert.equal((await connection.getTokenAccountBalance(deposit.userCollateral)).value.amount, "100");
+  assert.equal((await connection.getTokenAccountBalance(deposit.userCollateral)).value.amount, "125");
   for (const account of [deposit.userYes, deposit.userNo, vault]) assert.equal((await connection.getTokenAccountBalance(account)).value.amount, "0");
   console.log("Frontend transaction builders passed on validator: idempotent ATA setup, exact collateral deposit, YES/NO issuance, and complete-set withdrawal.");
+}
+
+async function testOrders(config, collateralMint, market, yesMint, noMint, makerShares, makerCollateral, backingVault, closesAt) {
+  const order = pda("ask", market.toBuffer(), admin.publicKey.toBuffer(), integer(1));
+  const escrow = pda("ask_escrow", order.toBuffer());
+  const takerCollateral = await createTokenAccount(collateralMint, outsider.publicKey);
+  const takerShares = await createTokenAccount(yesMint, outsider.publicKey);
+  const feeCollateral = await createTokenAccount(collateralMint);
+  const placeKeys = [meta(config), meta(market), meta(order, true), meta(collateralMint), meta(yesMint), meta(escrow, true), meta(makerShares, true), meta(admin.publicKey, true, true), meta(tokenProgram), meta(SystemProgram.programId)];
+  const place = instruction("place_ask", placeKeys, integer(1), Buffer.from([0]), integer(80), integer(500000), integer(closesAt));
+  await send([place]);
+  assert.equal((await connection.getTokenAccountBalance(escrow)).value.amount, "80");
+  assert.equal((await connection.getTokenAccountBalance(makerShares)).value.amount, "20");
+  await expectProgramError([place], [admin], "already in use");
+  const fillKeys = [meta(market), meta(order, true), meta(collateralMint), meta(yesMint), meta(escrow, true), meta(takerCollateral, true), meta(makerCollateral, true), meta(feeCollateral, true), meta(takerShares, true), meta(outsider.publicKey, false, true), meta(tokenProgram)];
+  const fill = (shares, limit) => instruction("fill_ask", fillKeys, integer(shares), integer(limit));
+  await expectProgramError([fill(81, 100)], [outsider], "InvalidAmount");
+  await expectProgramError([fill(30, 15)], [outsider], "Slippage");
+  const substituted = [...fillKeys];
+  substituted[3] = meta(noMint);
+  await expectProgramError([instruction("fill_ask", substituted, integer(30), integer(16))], [outsider], "ConstraintHasOne");
+  const mintCollateral = (value) => new TransactionInstruction({ programId: tokenProgram, keys: [meta(collateralMint, true), meta(takerCollateral, true), meta(admin.publicKey, false, true)], data: Buffer.concat([Buffer.from([7]), integer(value)]) });
+  await send([mintCollateral(16)]);
+  await send([fill(30, 16)], [outsider]);
+  assert.equal((await connection.getTokenAccountBalance(takerShares)).value.amount, "30");
+  assert.equal((await connection.getTokenAccountBalance(makerCollateral)).value.amount, "15");
+  assert.equal((await connection.getTokenAccountBalance(feeCollateral)).value.amount, "1");
+  await expectCommittedFailure([fill(20, 10)], [outsider]);
+  assert.equal((await connection.getAccountInfo(order)).data.readBigUInt64LE(152), 30n);
+  assert.equal((await connection.getTokenAccountBalance(escrow)).value.amount, "50");
+  assert.equal((await connection.getTokenAccountBalance(takerShares)).value.amount, "30");
+  await send([mintCollateral(10)]);
+  await send([fill(20, 10)], [outsider]);
+  assert.equal((await connection.getTokenAccountBalance(makerCollateral)).value.amount, "25");
+  assert.equal((await connection.getTokenAccountBalance(feeCollateral)).value.amount, "1");
+  const cancelKeys = [meta(order, true), meta(yesMint), meta(escrow, true), meta(makerShares, true), meta(admin.publicKey, false, true), meta(tokenProgram)];
+  const badCancel = [...cancelKeys];
+  badCancel[4] = meta(outsider.publicKey, false, true);
+  await expectProgramError([instruction("cancel_ask", badCancel)], [outsider], "ConstraintHasOne");
+  await send([instruction("cancel_ask", cancelKeys)]);
+  assert.equal((await connection.getTokenAccountBalance(escrow)).value.amount, "0");
+  assert.equal((await connection.getTokenAccountBalance(makerShares)).value.amount, "50");
+  await expectProgramError([fill(1, 1)], [outsider], "Cancelled");
+  await expectProgramError([instruction("cancel_ask", cancelKeys)], [admin], "Cancelled");
+  assert.equal((await connection.getTokenAccountBalance(backingVault)).value.amount, "100");
+  assert.equal((await connection.getAccountInfo(market)).data.readBigUInt64LE(298), 100n);
+  await send([new TransactionInstruction({ programId: tokenProgram, keys: [meta(takerShares, true), meta(yesMint), meta(makerShares, true), meta(outsider.publicKey, false, true)], data: Buffer.concat([Buffer.from([12]), integer(50), Buffer.from([9])]) })], [outsider]);
+  console.log("Ask escrow passed: partial fills, cumulative fees, slippage, substituted mint, submitted rollback, maker-only cancellation, replay rejection, and unchanged backing.");
 }
 
 async function testNativeWrapping() {
@@ -205,7 +254,7 @@ async function main() {
   ], [admin, collateral]);
 
   const config = pda("config");
-  await send([instruction("initialize_protocol", [meta(config, true), meta(collateral.publicKey), meta(admin.publicKey, true, true), meta(SystemProgram.programId)], admin.publicKey.toBuffer(), admin.publicKey.toBuffer(), Buffer.alloc(2), integer(20))]);
+  await send([instruction("initialize_protocol", [meta(config, true), meta(collateral.publicKey), meta(admin.publicKey, true, true), meta(SystemProgram.programId)], admin.publicKey.toBuffer(), admin.publicKey.toBuffer(), Buffer.from([30, 0]), integer(20))]);
   const configAccount = await connection.getAccountInfo(config);
   assert.equal(configAccount.data.length, 147);
   assert.ok(configAccount.owner.equals(program));
