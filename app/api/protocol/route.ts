@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
+import { PublicKey } from "@solana/web3.js";
 import { cookieChainConnection } from "@/lib/cookie-chain";
 import { COOKIE_MARKETS_PROGRAM_ID, deriveConfigAddress } from "@/lib/cookie-markets-program";
 import { decodeMarketAccount } from "@/lib/protocol-accounts";
-import { readVerifiedProtocol } from "@/lib/protocol-reader";
+import { readVerifiedAsks, readVerifiedProtocol } from "@/lib/protocol-reader";
 import { verifyPublishedMarketTerms } from "@/lib/market-terms-record";
 import { publishedMarketTerms } from "@/lib/published-market-terms";
 
@@ -10,9 +11,23 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
+    const asksAddress = new URL(request.url).searchParams.get("asks");
+    let asksMarket: PublicKey | undefined;
+    if (asksAddress !== null) {
+      try { asksMarket = new PublicKey(asksAddress); }
+      catch { return NextResponse.json({ error: "Provide a valid market address." }, { status: 400 }); }
+    }
     const configAddress = deriveConfigAddress();
     const config = await readVerifiedProtocol(cookieChainConnection);
     if (!config) return NextResponse.json({ deployed: false, configAddress: configAddress.toBase58(), markets: [] });
+    if (asksMarket) {
+      const account = await cookieChainConnection.getAccountInfo(asksMarket, "confirmed");
+      if (!account) return NextResponse.json({ error: "Market was not found." }, { status: 404 });
+      const market = decodeMarketAccount(asksMarket, account);
+      if (market.collateralMint !== config.collateralMint) throw new Error("Market collateral does not match protocol config.");
+      const asks = await readVerifiedAsks(cookieChainConnection, market);
+      return NextResponse.json({ deployed: true, market, asks });
+    }
     if (new URL(request.url).searchParams.get("markets") === "true") {
       const accounts = await cookieChainConnection.getProgramAccounts(COOKIE_MARKETS_PROGRAM_ID, { filters: [{ dataSize: 307 }] });
       const markets = await Promise.all(accounts.map(async ({ pubkey, account }) => {
