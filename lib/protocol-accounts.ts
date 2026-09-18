@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { AccountInfo, PublicKey } from "@solana/web3.js";
-import { COOKIE_MARKETS_PROGRAM_ID, deriveConfigAddress, deriveMarketAddresses } from "./cookie-markets-program";
+import { COOKIE_MARKETS_PROGRAM_ID, deriveAskAddresses, deriveConfigAddress, deriveMarketAddresses } from "./cookie-markets-program";
 
 type ProgramAccount = Pick<AccountInfo<Buffer>, "owner" | "data">;
 
@@ -52,3 +52,34 @@ export function decodeMarketAccount(address: PublicKey, account: ProgramAccount)
 }
 
 export type VerifiedMarket = ReturnType<typeof decodeMarketAccount>;
+
+export function decodeAskOrder(address: PublicKey, account: ProgramAccount, market: VerifiedMarket) {
+  const data = verifiedData(account, "AskOrder", 181);
+  const maker = new PublicKey(data.subarray(40, 72));
+  const nonce = data.readBigUInt64LE(136);
+  const addresses = deriveAskAddresses(new PublicKey(market.address), maker, nonce);
+  if (keyAt(data, 8) !== market.address || !addresses.order.equals(address)
+    || data[179] !== addresses.bump || data[180] !== addresses.escrowBump) {
+    throw new Error("Ask order PDA or market is invalid.");
+  }
+  const shareMint = keyAt(data, 72);
+  if (shareMint !== market.yesMint && shareMint !== market.noMint) throw new Error("Ask outcome mint is invalid.");
+  const totalShares = data.readBigUInt64LE(144);
+  const filledShares = data.readBigUInt64LE(152);
+  const price = data.readBigUInt64LE(160);
+  const expiresAt = data.readBigInt64LE(168);
+  const feeBps = data.readUInt16LE(176);
+  if (totalShares === BigInt(0) || filledShares > totalShares || price === BigInt(0)
+    || price > BigInt(1_000_000) || feeBps > 1000 || data[178] > 1
+    || expiresAt <= BigInt(0) || expiresAt > BigInt(market.closesAt)) {
+    throw new Error("Ask order limits are invalid.");
+  }
+  return {
+    address: address.toBase58(), market: market.address, maker: maker.toBase58(),
+    shareMint, side: shareMint === market.yesMint ? "yes" as const : "no" as const,
+    escrow: addresses.escrow.toBase58(), feeRecipient: keyAt(data, 104), feeBps,
+    nonce: nonce.toString(), totalShares: totalShares.toString(), filledShares: filledShares.toString(),
+    remainingShares: (totalShares - filledShares).toString(), price: price.toString(),
+    expiresAt: expiresAt.toString(), cancelled: data[178] === 1,
+  };
+}

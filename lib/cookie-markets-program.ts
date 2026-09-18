@@ -54,6 +54,84 @@ export function deriveConfigAddress(): PublicKey {
   )[0];
 }
 
+export function deriveAskAddresses(market: PublicKey, maker: PublicKey, nonce: bigint) {
+  const [order, bump] = PublicKey.findProgramAddressSync(
+    [textEncoder.encode("ask"), market.toBytes(), maker.toBytes(), encodeUnsigned64(nonce)],
+    COOKIE_MARKETS_PROGRAM_ID,
+  );
+  const [escrow, escrowBump] = PublicKey.findProgramAddressSync(
+    [textEncoder.encode("ask_escrow"), order.toBytes()], COOKIE_MARKETS_PROGRAM_ID,
+  );
+  return { order, escrow, bump, escrowBump };
+}
+
+export async function buildPlaceAskInstruction(params: {
+  creator: PublicKey; marketNonce: bigint; maker: PublicKey; nonce: bigint;
+  collateralMint: PublicKey; makerShares: PublicKey; side: PositionSide;
+  shares: bigint; price: bigint; expiresAt: bigint;
+}) {
+  if (params.side !== "yes" && params.side !== "no") throw new RangeError("Choose an order side.");
+  if (params.shares <= BigInt(0) || params.price <= BigInt(0) || params.price > BigInt(1_000_000)) {
+    throw new RangeError("Order shares and price are invalid.");
+  }
+  if (params.expiresAt <= BigInt(0)) throw new RangeError("Order expiry must be positive.");
+  const addresses = deriveMarketAddresses(params.creator, params.marketNonce);
+  const { order, escrow } = deriveAskAddresses(addresses.market, params.maker, params.nonce);
+  const shareMint = params.side === "yes" ? addresses.yesMint : addresses.noMint;
+  return instruction("place_ask", concatBytes(
+    encodeUnsigned64(params.nonce), Uint8Array.of(params.side === "yes" ? 0 : 1),
+    encodeUnsigned64(params.shares), encodeUnsigned64(params.price), encodeSigned64(params.expiresAt),
+  ), [
+    { pubkey: deriveConfigAddress(), isWritable: false, isSigner: false },
+    { pubkey: addresses.market, isWritable: false, isSigner: false },
+    { pubkey: order, isWritable: true, isSigner: false },
+    { pubkey: params.collateralMint, isWritable: false, isSigner: false },
+    { pubkey: shareMint, isWritable: false, isSigner: false },
+    { pubkey: escrow, isWritable: true, isSigner: false },
+    { pubkey: params.makerShares, isWritable: true, isSigner: false },
+    { pubkey: params.maker, isWritable: true, isSigner: true },
+    { pubkey: TOKEN_PROGRAM_ID, isWritable: false, isSigner: false },
+    { pubkey: SystemProgram.programId, isWritable: false, isSigner: false },
+  ]);
+}
+
+type AskIdentity = { market: PublicKey; maker: PublicKey; nonce: bigint; shareMint: PublicKey };
+
+export async function buildFillAskInstruction(params: AskIdentity & {
+  collateralMint: PublicKey; taker: PublicKey; takerCollateral: PublicKey;
+  makerCollateral: PublicKey; feeCollateral: PublicKey; takerShares: PublicKey;
+  shares: bigint; maximumDebit: bigint;
+}) {
+  if (params.maker.equals(params.taker)) throw new Error("Maker cannot fill their own order.");
+  if (params.shares <= BigInt(0) || params.maximumDebit <= BigInt(0)) throw new RangeError("Fill shares and debit limit must be positive.");
+  const { order, escrow } = deriveAskAddresses(params.market, params.maker, params.nonce);
+  return instruction("fill_ask", concatBytes(encodeUnsigned64(params.shares), encodeUnsigned64(params.maximumDebit)), [
+    { pubkey: params.market, isWritable: false, isSigner: false },
+    { pubkey: order, isWritable: true, isSigner: false },
+    { pubkey: params.collateralMint, isWritable: false, isSigner: false },
+    { pubkey: params.shareMint, isWritable: false, isSigner: false },
+    { pubkey: escrow, isWritable: true, isSigner: false },
+    { pubkey: params.takerCollateral, isWritable: true, isSigner: false },
+    { pubkey: params.makerCollateral, isWritable: true, isSigner: false },
+    { pubkey: params.feeCollateral, isWritable: true, isSigner: false },
+    { pubkey: params.takerShares, isWritable: true, isSigner: false },
+    { pubkey: params.taker, isWritable: false, isSigner: true },
+    { pubkey: TOKEN_PROGRAM_ID, isWritable: false, isSigner: false },
+  ]);
+}
+
+export async function buildCancelAskInstruction(params: AskIdentity & { makerShares: PublicKey }) {
+  const { order, escrow } = deriveAskAddresses(params.market, params.maker, params.nonce);
+  return instruction("cancel_ask", new Uint8Array(), [
+    { pubkey: order, isWritable: true, isSigner: false },
+    { pubkey: params.shareMint, isWritable: false, isSigner: false },
+    { pubkey: escrow, isWritable: true, isSigner: false },
+    { pubkey: params.makerShares, isWritable: true, isSigner: false },
+    { pubkey: params.maker, isWritable: false, isSigner: true },
+    { pubkey: TOKEN_PROGRAM_ID, isWritable: false, isSigner: false },
+  ]);
+}
+
 export async function buildInitializeProtocolInstruction(params: {
   admin: PublicKey;
   feeRecipient: PublicKey;
