@@ -200,22 +200,22 @@ pub struct PlaceAsk<'info> {
 #[derive(Accounts)]
 pub struct FillAsk<'info> {
     #[account(seeds = [MARKET_SEED, market.creator.as_ref(), &market.nonce.to_le_bytes()], bump = market.bump)]
-    pub market: Account<'info, Market>,
+    pub market: Box<Account<'info, Market>>,
     #[account(mut, has_one = market, has_one = share_mint, seeds = [ORDER_SEED, market.key().as_ref(), order.maker.as_ref(), &order.nonce.to_le_bytes()], bump = order.bump)]
-    pub order: Account<'info, AskOrder>,
+    pub order: Box<Account<'info, AskOrder>>,
     #[account(address = market.collateral_mint)]
-    pub collateral_mint: Account<'info, Mint>,
-    pub share_mint: Account<'info, Mint>,
+    pub collateral_mint: Box<Account<'info, Mint>>,
+    pub share_mint: Box<Account<'info, Mint>>,
     #[account(mut, seeds = [ESCROW_SEED, order.key().as_ref()], bump = order.escrow_bump, token::mint = share_mint, token::authority = order)]
-    pub escrow: Account<'info, TokenAccount>,
+    pub escrow: Box<Account<'info, TokenAccount>>,
     #[account(mut, token::mint = collateral_mint, token::authority = taker)]
-    pub taker_collateral: Account<'info, TokenAccount>,
+    pub taker_collateral: Box<Account<'info, TokenAccount>>,
     #[account(mut, token::mint = collateral_mint, constraint = maker_collateral.owner == order.maker)]
-    pub maker_collateral: Account<'info, TokenAccount>,
+    pub maker_collateral: Box<Account<'info, TokenAccount>>,
     #[account(mut, token::mint = collateral_mint, constraint = fee_collateral.owner == order.fee_recipient)]
-    pub fee_collateral: Account<'info, TokenAccount>,
+    pub fee_collateral: Box<Account<'info, TokenAccount>>,
     #[account(mut, token::mint = share_mint, token::authority = taker)]
-    pub taker_shares: Account<'info, TokenAccount>,
+    pub taker_shares: Box<Account<'info, TokenAccount>>,
     pub taker: Signer<'info>,
     pub token_program: Program<'info, Token>,
 }
@@ -309,6 +309,7 @@ mod tests {
 
     #[test]
     fn quotes_match_client_partial_fill_vectors() {
+        assert!(std::mem::size_of::<FillAsk>() < 1024);
         let mut order = AskOrder {
             market: Pubkey::default(),
             maker: Pubkey::default(),
