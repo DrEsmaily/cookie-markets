@@ -4,6 +4,65 @@ import type { VerifiedAsk, VerifiedMarket } from "./protocol-accounts";
 import { buildCreateAssociatedTokenInstruction, deriveAssociatedTokenAddress, NATIVE_MINT } from "./token-instructions";
 import { buildWrapNativeInstructions } from "./position-transactions";
 import { quoteOrderFill } from "./trading-math";
+import { buildCancelBidInstruction, buildFillBidInstruction, buildPlaceBidInstruction, deriveBidAddresses } from "./cookie-markets-program";
+import type { VerifiedBid } from "./protocol-accounts";
+
+type BidAction = {
+  action: "place"; nonce: bigint; side: PositionSide; shares: bigint; price: bigint;
+  expiresAt: bigint; feeBps: number; wrapNative?: boolean;
+} | {
+  action: "fill"; order: VerifiedBid; shares: bigint; minimumProceeds: bigint;
+} | {
+  action: "cancel"; order: VerifiedBid;
+};
+
+export async function buildBidTransactionInstructions(market: VerifiedMarket, user: PublicKey, operation: BidAction) {
+  if (!PublicKey.isOnCurve(user.toBytes())) throw new RangeError("A signing wallet must be an on-curve public key.");
+  const collateralMint = new PublicKey(market.collateralMint);
+  const instructions: TransactionInstruction[] = [];
+  if (operation.action === "place") {
+    const quote = quoteOrderFill({ totalShares: operation.shares, filledShares: BigInt(0), fillShares: operation.shares, price: operation.price, feeBps: operation.feeBps });
+    if (operation.wrapNative && !collateralMint.equals(NATIVE_MINT)) throw new RangeError("Native wrapping requires native collateral.");
+    instructions.push(buildCreateAssociatedTokenInstruction(user, collateralMint));
+    if (operation.wrapNative) instructions.push(...buildWrapNativeInstructions(user, quote.buyerDebit).slice(1));
+    instructions.push(await buildPlaceBidInstruction({
+      creator: new PublicKey(market.creator), marketNonce: BigInt(market.nonce), maker: user,
+      nonce: operation.nonce, collateralMint, makerCollateral: deriveAssociatedTokenAddress(collateralMint, user),
+      side: operation.side, shares: operation.shares, price: operation.price, expiresAt: operation.expiresAt,
+    }));
+    return { instructions, order: deriveBidAddresses(new PublicKey(market.address), user, operation.nonce).order.toBase58(), quote };
+  }
+  const order = operation.order;
+  if (order.market !== market.address || order.collateralMint !== market.collateralMint
+    || (order.shareMint !== market.yesMint && order.shareMint !== market.noMint)) throw new Error("Order does not belong to this market.");
+  const maker = new PublicKey(order.maker);
+  const shareMint = new PublicKey(order.shareMint);
+  const identity = { market: new PublicKey(market.address), maker, nonce: BigInt(order.nonce), collateralMint };
+  if (deriveBidAddresses(identity.market, maker, identity.nonce).order.toBase58() !== order.address) throw new Error("Order identity is invalid.");
+  if (order.cancelled) throw new RangeError("Order is already cancelled.");
+  if (operation.action === "cancel") {
+    if (!maker.equals(user)) throw new RangeError("Only the maker can cancel this order.");
+    instructions.push(buildCreateAssociatedTokenInstruction(user, collateralMint));
+    instructions.push(await buildCancelBidInstruction({ ...identity, makerCollateral: deriveAssociatedTokenAddress(collateralMint, user) }));
+    return { instructions, order: order.address };
+  }
+  const quote = quoteOrderFill({ totalShares: BigInt(order.totalShares), filledShares: BigInt(order.filledShares), fillShares: operation.shares, price: BigInt(order.price), feeBps: order.feeBps });
+  if (operation.minimumProceeds < BigInt(0) || operation.minimumProceeds > quote.collateral) throw new RangeError("Minimum proceeds exceed the current consideration.");
+  const feeRecipient = new PublicKey(order.feeRecipient);
+  instructions.push(
+    buildCreateAssociatedTokenInstruction(user, collateralMint),
+    buildCreateAssociatedTokenInstruction(maker, shareMint, user),
+    buildCreateAssociatedTokenInstruction(feeRecipient, collateralMint, user, true),
+  );
+  instructions.push(await buildFillBidInstruction({
+    ...identity, shareMint, taker: user, takerShares: deriveAssociatedTokenAddress(shareMint, user),
+    makerShares: deriveAssociatedTokenAddress(shareMint, maker),
+    takerCollateral: deriveAssociatedTokenAddress(collateralMint, user),
+    feeCollateral: deriveAssociatedTokenAddress(collateralMint, feeRecipient, true),
+    shares: operation.shares, minimumProceeds: operation.minimumProceeds,
+  }));
+  return { instructions, order: order.address, quote };
+}
 
 type AskAction = {
   action: "place"; nonce: bigint; side: PositionSide; shares: bigint; price: bigint; expiresAt: bigint;
