@@ -3,9 +3,9 @@ import { NextResponse } from "next/server";
 import { cookieChainConnection } from "@/lib/cookie-chain";
 import { COOKIE_CHAIN } from "@/lib/cookie-chain-config";
 import { TOKEN_PROGRAM_ID } from "@/lib/cookie-markets-program";
-import { decodeAskOrder, decodeMarketAccount } from "@/lib/protocol-accounts";
+import { decodeAskOrder, decodeBidOrder, decodeMarketAccount, type VerifiedBid } from "@/lib/protocol-accounts";
 import { readVerifiedProtocol } from "@/lib/protocol-reader";
-import { buildAskTransactionInstructions } from "@/lib/ask-transactions";
+import { buildAskTransactionInstructions, buildBidTransactionInstructions } from "@/lib/ask-transactions";
 import { readPreparationBody, RequestSizeError } from "@/lib/preparation-body";
 import { parseTokenAmount } from "@/lib/token-amounts";
 import { hashHex, hashMarketTerms } from "@/lib/market-terms";
@@ -22,14 +22,16 @@ export async function POST(request: Request) {
     const body = JSON.parse(await readPreparationBody(request)) as Record<string, unknown>;
     if (!body || typeof body !== "object" || typeof body.market !== "string" || typeof body.user !== "string") return NextResponse.json({ error: "Provide market and wallet addresses." }, { status: 400 });
     const action = body.action;
+    const orderType = body.orderType ?? "ask";
+    if (orderType !== "ask" && orderType !== "bid") return NextResponse.json({ error: "Choose ask or bid." }, { status: 400 });
     if (action !== "place" && action !== "fill" && action !== "cancel") return NextResponse.json({ error: "Choose place, fill, or cancel." }, { status: 400 });
     if (body.wrapNative !== undefined && typeof body.wrapNative !== "boolean") return NextResponse.json({ error: "wrapNative must be a boolean." }, { status: 400 });
-    if (body.wrapNative === true && action !== "fill") return NextResponse.json({ error: "Native wrapping is only available when buying shares." }, { status: 400 });
+    if (body.wrapNative === true && !(orderType === "ask" && action === "fill") && !(orderType === "bid" && action === "place")) return NextResponse.json({ error: "Native wrapping is only available when funding a purchase." }, { status: 400 });
     if (action !== "cancel" && typeof body.amount !== "string") return NextResponse.json({ error: "Provide a decimal share amount." }, { status: 400 });
     if (action === "place" && (typeof body.nonce !== "string" || !/^(0|[1-9]\d{0,19})$/.test(body.nonce)
       || (body.side !== "yes" && body.side !== "no") || typeof body.price !== "string"
       || typeof body.expiresAt !== "string" || !/^[1-9]\d{0,18}$/.test(body.expiresAt))) return NextResponse.json({ error: "Provide an unsigned nonce, YES/NO side, decimal price, and expiry in Unix seconds." }, { status: 400 });
-    if (action === "fill" && typeof body.maximumDebit !== "string") return NextResponse.json({ error: "Provide the maximum collateral debit including trading fees." }, { status: 400 });
+    if (action === "fill" && typeof body[orderType === "bid" ? "minimumProceeds" : "maximumDebit"] !== "string") return NextResponse.json({ error: "Provide an explicit collateral protection limit." }, { status: 400 });
     if (action !== "place" && typeof body.order !== "string") return NextResponse.json({ error: "Provide an order address." }, { status: 400 });
     let address: PublicKey;
     let user: PublicKey;
@@ -53,6 +55,7 @@ export async function POST(request: Request) {
       if (market.status !== "open") return NextResponse.json({ error: "Market is not open for trading." }, { status: 409 });
     }
     let operation: Parameters<typeof buildAskTransactionInstructions>[2];
+    let bidOrder: VerifiedBid | undefined;
     try {
       if (action === "place") {
         operation = { action, nonce: BigInt(body.nonce as string), side: body.side as "yes" | "no", shares: amount(body.amount, protocol.collateralDecimals), price: amount(body.price, 6), expiresAt: BigInt(body.expiresAt as string) };
@@ -60,8 +63,8 @@ export async function POST(request: Request) {
       } else {
         const orderAccount = await cookieChainConnection.getAccountInfo(orderAddress!, "confirmed");
         if (!orderAccount) return NextResponse.json({ error: "Order was not found." }, { status: 404 });
-        const order = decodeAskOrder(orderAddress!, orderAccount, market);
-        operation = action === "cancel" ? { action, order } : { action, order, shares: amount(body.amount, protocol.collateralDecimals), maximumDebit: amount(body.maximumDebit, protocol.collateralDecimals), wrapNative: body.wrapNative === true };
+        const order = orderType === "bid" ? (bidOrder = decodeBidOrder(orderAddress!, orderAccount, market)) : decodeAskOrder(orderAddress!, orderAccount, market);
+        operation = action === "cancel" ? { action, order } : { action, order, shares: amount(body.amount, protocol.collateralDecimals), maximumDebit: amount(orderType === "bid" ? body.minimumProceeds : body.maximumDebit, protocol.collateralDecimals), wrapNative: body.wrapNative === true };
       }
     } catch (error) {
       if (error instanceof RangeError) return NextResponse.json({ error: error.message }, { status: 400 });
@@ -70,7 +73,11 @@ export async function POST(request: Request) {
     const shareMintAddress = operation.action === "place" ? operation.side === "yes" ? market.yesMint : market.noMint : operation.order.shareMint;
     const shareMint = await cookieChainConnection.getAccountInfo(new PublicKey(shareMintAddress), "confirmed");
     if (!shareMint || !shareMint.owner.equals(TOKEN_PROGRAM_ID) || shareMint.data.length !== 82 || shareMint.data[45] !== 1 || shareMint.data[44] !== protocol.collateralDecimals) throw new Error("Outcome mint is not initialized with approved collateral decimals.");
-    const prepared = await buildAskTransactionInstructions(market, user, operation);
+    const prepared = orderType === "bid" ? await buildBidTransactionInstructions(market, user,
+      operation.action === "place" ? { ...operation, feeBps: protocol.feeBps, wrapNative: body.wrapNative === true }
+        : operation.action === "cancel" ? { action: "cancel", order: bidOrder! }
+          : { action: "fill", order: bidOrder!, shares: operation.shares, minimumProceeds: operation.maximumDebit },
+    ) : await buildAskTransactionInstructions(market, user, operation);
     const latest = await cookieChainConnection.getLatestBlockhashAndContext("confirmed");
     const transaction = new Transaction({ feePayer: user, ...latest.value }).add(...prepared.instructions);
     const message = transaction.compileMessage();
@@ -81,9 +88,10 @@ export async function POST(request: Request) {
     return NextResponse.json({
       unsignedTransaction: transaction.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64"),
       genesisHash: COOKIE_CHAIN.genesisHash, feePayer: user.toBase58(), market: market.address, order: prepared.order,
-      action, shareMint: prepared.shareMint, collateralMint: market.collateralMint,
+      action, orderType, shareMint: shareMintAddress, collateralMint: market.collateralMint,
       sharesBaseUnits: operation.action === "cancel" ? operation.order.remainingShares : operation.shares.toString(),
-      maximumDebitBaseUnits: operation.action === "fill" ? operation.maximumDebit.toString() : undefined,
+      maximumDebitBaseUnits: operation.action === "fill" && orderType === "ask" ? operation.maximumDebit.toString() : undefined,
+      minimumProceedsBaseUnits: operation.action === "fill" && orderType === "bid" ? operation.maximumDebit.toString() : undefined,
       quote: prepared.quote ? Object.fromEntries(Object.entries(prepared.quote).map(([key, value]) => [key, value.toString()])) : undefined,
       feeBaseUnits: fee.value.toString(), blockhash: latest.value.blockhash, lastValidBlockHeight: latest.value.lastValidBlockHeight, simulationSlot: simulation.context.slot,
       note: "Unsigned review only, not execution. Network fees exclude rent for order, escrow, and associated accounts. Native wrapping funds the quoted debit; receipts remain wrapped collateral. Re-prepare after any order change.",
