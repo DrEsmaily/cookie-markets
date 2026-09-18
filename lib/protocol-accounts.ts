@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { AccountInfo, PublicKey } from "@solana/web3.js";
-import { COOKIE_MARKETS_PROGRAM_ID, deriveAskAddresses, deriveConfigAddress, deriveMarketAddresses } from "./cookie-markets-program";
+import { COOKIE_MARKETS_PROGRAM_ID, deriveAskAddresses, deriveBidAddresses, deriveConfigAddress, deriveMarketAddresses } from "./cookie-markets-program";
 
 type ProgramAccount = Pick<AccountInfo<Buffer>, "owner" | "data">;
 
@@ -85,3 +85,41 @@ export function decodeAskOrder(address: PublicKey, account: ProgramAccount, mark
 }
 
 export type VerifiedAsk = ReturnType<typeof decodeAskOrder>;
+
+export function decodeBidOrder(address: PublicKey, account: ProgramAccount, market: VerifiedMarket) {
+  const data = verifiedData(account, "BidOrder", 213);
+  const maker = new PublicKey(data.subarray(40, 72));
+  const nonce = data.readBigUInt64LE(168);
+  const addresses = deriveBidAddresses(new PublicKey(market.address), maker, nonce);
+  if (keyAt(data, 8) !== market.address || !addresses.order.equals(address)
+    || data[211] !== addresses.bump || data[212] !== addresses.escrowBump) {
+    throw new Error("Bid order PDA or market is invalid.");
+  }
+  const shareMint = keyAt(data, 72);
+  if (shareMint !== market.yesMint && shareMint !== market.noMint) throw new Error("Bid outcome mint is invalid.");
+  if (keyAt(data, 104) !== market.collateralMint) throw new Error("Bid collateral mint is invalid.");
+  const totalShares = data.readBigUInt64LE(176);
+  const filledShares = data.readBigUInt64LE(184);
+  const price = data.readBigUInt64LE(192);
+  const expiresAt = data.readBigInt64LE(200);
+  const feeBps = data.readUInt16LE(208);
+  const maximum = BigInt("18446744073709551615");
+  const collateral = (totalShares * price + BigInt(999999)) / BigInt(1_000_000);
+  const fee = (collateral * BigInt(feeBps) + BigInt(9999)) / BigInt(10000);
+  if (totalShares === BigInt(0) || filledShares > totalShares || price === BigInt(0)
+    || price > BigInt(1_000_000) || feeBps > 1000 || data[210] > 1
+    || expiresAt <= BigInt(0) || expiresAt > BigInt(market.closesAt) || collateral + fee > maximum) {
+    throw new Error("Bid order limits are invalid.");
+  }
+  return {
+    address: address.toBase58(), market: market.address, maker: maker.toBase58(),
+    collateralMint: market.collateralMint, shareMint,
+    side: shareMint === market.yesMint ? "yes" as const : "no" as const,
+    escrow: addresses.escrow.toBase58(), feeRecipient: keyAt(data, 136), feeBps,
+    nonce: nonce.toString(), totalShares: totalShares.toString(), filledShares: filledShares.toString(),
+    remainingShares: (totalShares - filledShares).toString(), price: price.toString(),
+    expiresAt: expiresAt.toString(), cancelled: data[210] === 1,
+  };
+}
+
+export type VerifiedBid = ReturnType<typeof decodeBidOrder>;
