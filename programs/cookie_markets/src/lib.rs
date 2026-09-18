@@ -4,6 +4,8 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Burn, Mint, MintTo, Token, TokenAccount, TransferChecked};
 mod orders;
 pub use orders::*;
+mod bids;
+pub use bids::*;
 
 declare_id!("US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx");
 
@@ -36,6 +38,25 @@ pub mod cookie_markets {
 
     pub fn cancel_ask(ctx: Context<CancelAsk>) -> Result<()> {
         orders::cancel(ctx)
+    }
+
+    pub fn place_bid(
+        ctx: Context<PlaceBid>,
+        nonce: u64,
+        side: PositionSide,
+        shares: u64,
+        price: u64,
+        expires_at: i64,
+    ) -> Result<()> {
+        bids::execute_place_bid(ctx, nonce, side, shares, price, expires_at)
+    }
+
+    pub fn fill_bid(ctx: Context<FillBid>, shares: u64, minimum_proceeds: u64) -> Result<()> {
+        bids::execute_fill_bid(ctx, shares, minimum_proceeds)
+    }
+
+    pub fn cancel_bid(ctx: Context<CancelBid>) -> Result<()> {
+        bids::execute_cancel_bid(ctx)
     }
 
     pub fn initialize_protocol(

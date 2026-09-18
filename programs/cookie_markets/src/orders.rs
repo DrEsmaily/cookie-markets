@@ -254,33 +254,47 @@ impl AskOrder {
     pub const SPACE: usize = 8 + 32 * 4 + 8 * 5 + 2 + 3;
 
     fn quote(&self, shares: u64) -> Result<(u64, u64, u64)> {
-        let filled = self
-            .filled_shares
-            .checked_add(shares)
-            .ok_or(OrderError::InvalidAmount)?;
-        require!(
-            shares > 0
-                && filled <= self.total_shares
-                && self.price > 0
-                && u128::from(self.price) <= PRICE_SCALE
-                && self.fee_bps <= MAX_FEE_BPS,
-            OrderError::InvalidAmount
-        );
-        let before =
-            (u128::from(self.filled_shares) * u128::from(self.price)).div_ceil(PRICE_SCALE);
-        let after = (u128::from(filled) * u128::from(self.price)).div_ceil(PRICE_SCALE);
-        let collateral = u64::try_from(after - before).map_err(|_| OrderError::InvalidAmount)?;
-        require!(collateral > 0, OrderError::DustFill);
-        let fee = u64::try_from(
-            (after * u128::from(self.fee_bps)).div_ceil(10_000)
-                - (before * u128::from(self.fee_bps)).div_ceil(10_000),
+        quote_order_fill(
+            self.total_shares,
+            self.filled_shares,
+            shares,
+            self.price,
+            self.fee_bps,
         )
-        .map_err(|_| OrderError::InvalidAmount)?;
-        let debit = collateral
-            .checked_add(fee)
-            .ok_or(OrderError::InvalidAmount)?;
-        Ok((collateral, fee, debit))
     }
+}
+
+pub(crate) fn quote_order_fill(
+    total_shares: u64,
+    filled_shares: u64,
+    shares: u64,
+    price: u64,
+    fee_bps: u16,
+) -> Result<(u64, u64, u64)> {
+    let filled = filled_shares
+        .checked_add(shares)
+        .ok_or(OrderError::InvalidAmount)?;
+    require!(
+        shares > 0
+            && filled <= total_shares
+            && price > 0
+            && u128::from(price) <= PRICE_SCALE
+            && fee_bps <= MAX_FEE_BPS,
+        OrderError::InvalidAmount
+    );
+    let before = (u128::from(filled_shares) * u128::from(price)).div_ceil(PRICE_SCALE);
+    let after = (u128::from(filled) * u128::from(price)).div_ceil(PRICE_SCALE);
+    let collateral = u64::try_from(after - before).map_err(|_| OrderError::InvalidAmount)?;
+    require!(collateral > 0, OrderError::DustFill);
+    let fee = u64::try_from(
+        (after * u128::from(fee_bps)).div_ceil(10_000)
+            - (before * u128::from(fee_bps)).div_ceil(10_000),
+    )
+    .map_err(|_| OrderError::InvalidAmount)?;
+    let debit = collateral
+        .checked_add(fee)
+        .ok_or(OrderError::InvalidAmount)?;
+    Ok((collateral, fee, debit))
 }
 
 #[error_code]
