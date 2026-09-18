@@ -4,6 +4,14 @@ const { test } = require("node:test");
 const url = `${process.env.TEST_APP_URL ?? "http://127.0.0.1:3001"}/api/positions/prepare`;
 const base = { market: "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx", user: "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx", amount: "1", action: "split" };
 
+for (const query of ["position=invalid&user=invalid", `position=${base.market}`, `user=${base.user}`, `position=${base.market}&user=${base.user}&asks=${base.market}`]) {
+  test(`HTTP position discovery rejects malformed or conflicting query ${query}`, async () => {
+    const response = await fetch(`${process.env.TEST_APP_URL ?? "http://127.0.0.1:3001"}/api/protocol?${query}`, { signal: AbortSignal.timeout(10000) });
+    assert.equal(response.status, 400);
+    assert.ok((await response.json()).error);
+  });
+}
+
 test("HTTP ask discovery rejects invalid market addresses before accessing RPC", async () => {
   const response = await fetch(`${process.env.TEST_APP_URL ?? "http://127.0.0.1:3001"}/api/protocol?asks=not-a-public-key`, { signal: AbortSignal.timeout(10000) });
   assert.equal(response.status, 400);

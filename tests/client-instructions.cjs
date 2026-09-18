@@ -472,6 +472,74 @@ test("settlement evidence selects latest qualifying prices and rejects ambiguous
   assert.throws(() => selectPriceMarketEvidence(spec, Array(10001).fill(latest), publication));
 });
 
+test("price evidence artifacts bind original responses and decisions to immutable market terms", async () => {
+  const { createPriceEvidenceRecord } = require("../.test-build/market-terms-record.js");
+  const { createPriceMarketTerms } = require("../.test-build/market-terms.js");
+  const spec = { asset: "BTC", source: "Approved dataset", targetUsd: "100000", settlesAt: "2030-09-30T18:00:00.000Z" };
+  const hashes = await hashMarketTerms(createPriceMarketTerms(spec));
+  const input = {
+    market: { address: addresses.market.toBase58(), questionHash: hashHex(hashes.questionHash), rulesHash: hashHex(hashes.rulesHash) },
+    spec,
+    observations: [{ asset: "BTC", source: spec.source, priceUsd: "100000", observedAt: spec.settlesAt }],
+    publishedAt: spec.settlesAt,
+    originalResponse: '{"provider":"test fixture"}',
+  };
+  const evidence = await createPriceEvidenceRecord(input);
+  assert.equal(evidence.record.decision.outcome, "yes");
+  assert.equal(evidence.record.originalResponseHash, createHash("sha256").update(input.originalResponse).digest("hex"));
+  assert.equal(evidence.evidenceHash, createHash("sha256").update(evidence.serialized).digest("hex"));
+  assert.deepEqual(JSON.parse(evidence.serialized), evidence.record);
+  const changed = await createPriceEvidenceRecord({ ...input, market: { ...input.market, address: user.toBase58() } });
+  assert.notEqual(changed.evidenceHash, evidence.evidenceHash);
+  await assert.rejects(createPriceEvidenceRecord({ ...input, spec: { ...spec, targetUsd: "99999" } }), /hashes/);
+  await assert.rejects(createPriceEvidenceRecord({ ...input, originalResponse: " " }), /response/);
+  await assert.rejects(createPriceEvidenceRecord({ ...input, originalResponse: "x".repeat(1048577) }), /response/);
+  await assert.rejects(createPriceEvidenceRecord({ ...input, market: { ...input.market, address: "invalid" } }));
+});
+
+test("position snapshots validate custody and preserve full-width balances", async () => {
+  const { readVerifiedPosition } = require("../.test-build/protocol-reader.js");
+  const market = { address: addresses.market.toBase58(), collateralMint: collateralMint.toBase58(), yesMint: addresses.yesMint.toBase58(), noMint: addresses.noMint.toBase58() };
+  const mintKeys = [collateralMint, addresses.yesMint, addresses.noMint];
+  const accounts = mintKeys.map((mint) => {
+    const data = Buffer.alloc(165);
+    mint.toBuffer().copy(data, 0);
+    user.toBuffer().copy(data, 32);
+    data.writeBigUInt64LE(18446744073709551615n, 64);
+    data[108] = 1;
+    return { owner: client.TOKEN_PROGRAM_ID, data };
+  });
+  const connection = { getMultipleAccountsInfo: async (keys, commitment) => {
+    assert.deepEqual(keys.map(key => key.toBase58()), mintKeys.map(mint => deriveAssociatedTokenAddress(mint, user).toBase58()));
+    assert.equal(commitment, "confirmed");
+    return accounts;
+  } };
+  assert.equal((await readVerifiedPosition(connection, market, user)).yes.amountBaseUnits, "18446744073709551615");
+  assert.equal((await readVerifiedPosition({ getMultipleAccountsInfo: async () => [null, null, null] }, market, user)).no.amountBaseUnits, "0");
+  await assert.rejects(readVerifiedPosition({ getMultipleAccountsInfo: async () => [] }, market, user), /Incomplete/);
+  for (const offset of [0, 32, 108]) {
+    const bad = { ...accounts[0], data: Buffer.from(accounts[0].data) };
+    bad.data[offset] ^= 1;
+    await assert.rejects(readVerifiedPosition({ getMultipleAccountsInfo: async () => [bad, accounts[1], accounts[2]] }, market, user), /identity or state/);
+  }
+  await assert.rejects(readVerifiedPosition({ getMultipleAccountsInfo: async () => [{ ...accounts[0], owner: SystemProgram.programId }, accounts[1], accounts[2]] }, market, user), /identity or state/);
+});
+
+test("Coinbase evidence uses only the preceding closed minute and preserves raw decimal precision", () => {
+  const { coinbasePriceMarketSpec, parseCoinbasePriceEvidence } = require("../.test-build/market-terms.js");
+  const spec = coinbasePriceMarketSpec("BTC", "100000", "2030-09-30T18:00:00.000Z");
+  const bucket = Date.parse(spec.settlesAt) / 1000 - 60;
+  const raw = `[[${bucket + 60},1,2,1,2,0],[${bucket},99999,100001,100000,100000.00000001,1]]`;
+  const observations = parseCoinbasePriceEvidence(spec, raw);
+  assert.equal(observations.length, 1);
+  assert.equal(observations[0].priceUsd, "100000.00000001");
+  assert.equal(observations[0].observedAt, spec.settlesAt);
+  assert.deepEqual(parseCoinbasePriceEvidence(spec, "[]"), []);
+  for (const raw of ["{}", '[["123",1,2,1,2,1]]', `[[${bucket},10,1,2,2,1]]`, `[[${bucket},1,2,1,3,1]]`, `[[${bucket},1,2,1,1.123456789,1]]`]) assert.throws(() => parseCoinbasePriceEvidence(spec, raw));
+  assert.throws(() => coinbasePriceMarketSpec("BTC", "100000", "2030-09-30T18:00:01.000Z"));
+  assert.throws(() => parseCoinbasePriceEvidence({ ...spec, source: "Other dataset" }, raw));
+});
+
 test("readable market terms produce the exact committed hashes", async () => {
   const terms = { question: " Will this event happen? ", resolutionSource: " Public source ", resolutionRules: " Yes if the source reports the event; No otherwise. " };
   const hashed = await hashMarketTerms(terms);
