@@ -1,6 +1,6 @@
 # Order book and AMM implementation track
 
-The product will support both venues, as requested. Neither venue is implemented in the deployed protocol: no deployment exists. `lib/trading-math.ts` supplies tested reference arithmetic, not executable custody instructions or a live price feed.
+The product will support both venues, as requested. No deployment exists. Seller ask escrow instructions now implement placement, atomic partial fills with cumulative fees, and maker-only cancellation. They do not yet constitute a full order book: bid orders, discovery, client builders, and trading UI remain incomplete. `lib/trading-math.ts` supplies reference arithmetic, not a live price feed. AMM custody instructions remain unimplemented.
 
 ## Shared rules
 
@@ -15,6 +15,8 @@ Fee parameters in quote tests are inputs, not approved live fees. Fee policy, li
 Implement maker-owned ask orders that escrow existing shares, with a nonce-bound order PDA, checked market/side/mint, fixed price, total and filled quantity, and expiry no later than market close. Takers pay collateral, receive shares atomically, and enforce a maximum collateral debit. Only the maker can cancel and recover remaining shares. Anyone may fill an unexpired open order; no trusted matching server should be able to withdraw escrow. Bid escrow, indexing, best-price selection, and cancellation races require their own instructions and tests before claiming a full order book.
 
 Charge each fill the difference between rounded cumulative consideration before and after the fill. Apply fee rounding to cumulative consideration too. This avoids charging repeated rounding premiums for fragmented fills. Reject any fill whose collateral transfer rounds to zero: no shares should leave escrow for free. Record progress only within the same atomic transfer transaction. Caller-supplied prior fills are not authoritative; read them from the order account.
+
+`place_ask` snapshots the protocol fee rate and recipient. `fill_ask` enforces the taker's maximum debit and pays the maker and fee recipient before transferring escrowed shares, all within one atomic instruction. Self-trades are rejected. `cancel_ask` works independently of market state/expiry and returns the entire remaining escrow balance. Order and escrow accounts remain allocated, including after cancellation, to prevent nonce reuse and stale-order replay; rent recovery is not implemented. Unsolicited tokens sent after cancellation cannot be recovered through this version. No order authority has access to the market backing vault.
 
 ## Then: funded pools
 

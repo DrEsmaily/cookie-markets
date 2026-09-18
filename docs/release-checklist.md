@@ -36,7 +36,7 @@ Only public addresses and approvals belong in conversation. Do not share seed ph
 
 - Explicit deployment approval and the intended testing/live environment. Existing instructions prohibit deployment.
 - Public program address, upgrade/governance authority, admin, and resolver addresses, with the intended separation of control and multisig threshold if applicable.
-- Execution venue and liquidity model; approved fees and challenge duration. Configured fee fields do not currently collect trading fees.
+- Approved live fees, liquidity funding, and challenge duration. Ask fills collect the snapshotted configured fee; AMM fees and pool custody remain unimplemented.
 - Hosting/public metadata persistence choice, operating cost approval, and custody/risk acceptance.
 
 Any deployment signature, wallet transaction, secret entry, or credential grant remains a user-controlled step. Nothing in this checklist authorizes it automatically.
