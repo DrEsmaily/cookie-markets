@@ -6,13 +6,14 @@ import type { MarketTerms } from "@/lib/market-terms";
 import type { VerifiedAsk } from "@/lib/protocol-accounts";
 
 type Preparation = {
-  unsignedTransaction: string; order: string; sharesBaseUnits: string; maximumDebitBaseUnits?: string;
+  unsignedTransaction: string; order: string; sharesBaseUnits: string; maximumDebitBaseUnits?: string; minimumProceedsBaseUnits?: string;
   feePayer: string; feeBaseUnits: string; lastValidBlockHeight: number; note: string;
   quote?: { collateral: string; fee: string; buyerDebit: string };
 };
 
 export function OrderPreparationForm({ market, terms, tradingAllowed = true }: { market: string; terms?: MarketTerms; tradingAllowed?: boolean }) {
   const [action, setAction] = useState("fill");
+  const [orderType, setOrderType] = useState<"ask" | "bid">("ask");
   const [order, setOrder] = useState("");
   const [asks, setAsks] = useState<VerifiedAsk[]>([]);
   const [discoveryError, setDiscoveryError] = useState<string>();
@@ -32,14 +33,16 @@ export function OrderPreparationForm({ market, terms, tradingAllowed = true }: {
   const [isPreparing, setIsPreparing] = useState(false);
 
   useEffect(() => {
+    setAsks([]); setDiscoveryLoaded(false); setDiscoveryError(undefined); setOrder(""); setPreparation(undefined);
     setNonce(Date.now().toString());
     const controller = new AbortController();
     async function discover() {
       try {
-        const response = await fetch(`/api/protocol?asks=${encodeURIComponent(market)}`, { signal: controller.signal, cache: "no-store" });
-        const result = await response.json() as { asks?: VerifiedAsk[]; error?: string };
-        if (!response.ok || result.error || !result.asks) throw new Error(result.error ?? "Verified order discovery is unavailable.");
-        setAsks(result.asks);
+        const response = await fetch(`/api/protocol?${orderType === "bid" ? "bids" : "asks"}=${encodeURIComponent(market)}`, { signal: controller.signal, cache: "no-store" });
+        const result = await response.json() as { asks?: VerifiedAsk[]; bids?: VerifiedAsk[]; error?: string };
+        const records = orderType === "bid" ? result.bids : result.asks;
+        if (!response.ok || result.error || !records) throw new Error(result.error ?? "Verified order discovery is unavailable.");
+        setAsks(records);
         setDiscoveryLoaded(true);
       } catch (failure) {
         if (!controller.signal.aborted) setDiscoveryError(failure instanceof Error ? failure.message : "Could not load orders.");
@@ -47,7 +50,7 @@ export function OrderPreparationForm({ market, terms, tradingAllowed = true }: {
     }
     void discover();
     return () => controller.abort();
-  }, [market]);
+  }, [market, orderType]);
 
   function clearPreview() { setPreparation(undefined); setError(undefined); }
 
@@ -65,7 +68,7 @@ export function OrderPreparationForm({ market, terms, tradingAllowed = true }: {
       if (!accounts[0]) throw new Error("Nightly did not share an account.");
       const response = await fetch("/api/orders/prepare", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ market, user: accounts[0].address, action, order, amount, maximumDebit, nonce, side, price, expiresAt: action === "place" ? Math.floor(new Date(expiresAt).getTime() / 1000).toString() : undefined, wrapNative: action === "fill" && wrapNative, question, resolutionSource, resolutionRules }),
+        body: JSON.stringify({ market, user: accounts[0].address, action, orderType, order, amount, maximumDebit, minimumProceeds: maximumDebit, nonce, side, price, expiresAt: action === "place" ? Math.floor(new Date(expiresAt).getTime() / 1000).toString() : undefined, wrapNative: (orderType === "ask" ? action === "fill" : action === "place") && wrapNative, question, resolutionSource, resolutionRules }),
       });
       const result = await response.json() as Preparation & { error?: string };
       if (!response.ok || result.error) throw new Error(result.error ?? "Trade preparation failed.");
@@ -76,20 +79,21 @@ export function OrderPreparationForm({ market, terms, tradingAllowed = true }: {
   }
 
   return <form className="draft-form" onSubmit={prepare} onChange={clearPreview}>
-    <h2>Seller orders</h2>
+    <h2>Buy and sell orders</h2>
     <p>Review actual escrow transactions. Execution is not enabled yet: this screen requests no signature and sends no transaction.</p>
     {discoveryError ? <p role="alert">{discoveryError} You can supply an order address; the backend verifies it again.</p> : discoveryLoaded ? <p>{asks.length} verified order records loaded. Filled, cancelled, or expired records cannot be bought. This snapshot may change; preparation reads the order again.</p> : <p>Loading verified seller orders…</p>}
     <fieldset disabled={isPreparing}>
-      <label className="form-field"><span>Operation</span><select value={action} onChange={(event) => setAction(event.target.value)}><option value="fill" disabled={!tradingAllowed}>Buy shares from a seller order</option><option value="place" disabled={!tradingAllowed}>Place an escrowed sell order</option><option value="cancel">Cancel my sell order</option></select></label>
+      <label className="form-field"><span>Order book side</span><select value={orderType} onChange={(event) => { setOrderType(event.target.value as "ask" | "bid"); setMaximumDebit(""); setWrapNative(false); }}><option value="ask">Seller offers (asks)</option><option value="bid">Buyer offers (bids)</option></select></label>
+      <label className="form-field"><span>Operation</span><select value={action} onChange={(event) => setAction(event.target.value)}><option value="fill" disabled={!tradingAllowed}>{orderType === "bid" ? "Sell shares into a funded buyer offer" : "Buy shares from a seller offer"}</option><option value="place" disabled={!tradingAllowed}>{orderType === "bid" ? "Place a funded buy offer" : "Place an escrowed sell offer"}</option><option value="cancel">Cancel my offer</option></select></label>
       {action !== "place" ? <>
         {asks.length ? <label className="form-field"><span>Verified orders, sorted by price</span><select value={asks.some((ask) => ask.address === order) ? order : ""} onChange={(event) => setOrder(event.target.value)}><option value="">Choose an order or paste an address below</option>{asks.map((ask) => <option key={ask.address} value={ask.address}>{ask.side.toUpperCase()} · price {ask.price}/1000000 · {ask.remainingShares} share base units · {ask.cancelled ? "cancelled" : "expiry " + ask.expiresAt} · {ask.address}</option>)}</select></label> : null}
         <label className="form-field"><span>Order address</span><input value={order} onChange={(event) => setOrder(event.target.value)} required /></label>
       </> : null}
       {action !== "cancel" ? <label className="form-field"><span>Share amount in token units</span><input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" required /></label> : null}
       {action === "fill" ? <>
-        <label className="form-field"><span>Maximum collateral debit, including trading fees</span><input value={maximumDebit} onChange={(event) => setMaximumDebit(event.target.value)} inputMode="decimal" required /></label>
-        <label><input type="checkbox" checked={wrapNative} onChange={(event) => setWrapNative(event.target.checked)} /> Wrap native COOK for the quoted debit (native collateral only)</label>
+        <label className="form-field"><span>{orderType === "bid" ? "Minimum seller payment in collateral units" : "Maximum collateral debit, including trading fees"}</span><input value={maximumDebit} onChange={(event) => setMaximumDebit(event.target.value)} inputMode="decimal" required /></label>
       </> : null}
+      {(orderType === "ask" && action === "fill") || (orderType === "bid" && action === "place") ? <label><input type="checkbox" checked={wrapNative} onChange={(event) => setWrapNative(event.target.checked)} /> Explicitly wrap native COOK to fund this purchase (native collateral only)</label> : null}
       {action === "place" ? <>
         <label className="form-field"><span>New order nonce (unsigned integer, never reused)</span><input value={nonce} onChange={(event) => setNonce(event.target.value)} inputMode="numeric" required /></label>
         <label className="form-field"><span>Share side</span><select value={side} onChange={(event) => setSide(event.target.value)}><option value="yes">YES</option><option value="no">NO</option></select></label>
@@ -103,6 +107,7 @@ export function OrderPreparationForm({ market, terms, tradingAllowed = true }: {
       </> : null}
       <button className="primary-action form-action" type="submit" disabled={action !== "cancel" && !tradingAllowed}>{isPreparing ? "Checking transaction…" : "Review unsigned trade"}</button>
     </fieldset>
+    {preparation?.minimumProceedsBaseUnits ? <p>Minimum seller payment: {preparation.minimumProceedsBaseUnits} collateral base units. The buyer escrow pays the trading fee separately.</p> : null}
     {error ? <p className="form-error" role="alert">{error}</p> : null}
     {preparation ? <div className="draft-ready"><strong>Contract simulation passed. Nothing was sent.</strong><p>Wallet: {preparation.feePayer} · Order: {preparation.order}</p><p>Shares: {preparation.sharesBaseUnits} base units · Network fee: {preparation.feeBaseUnits} base units · Block expiry: {preparation.lastValidBlockHeight}</p>{preparation.quote ? <p>Seller payment: {preparation.quote.collateral} · Trading fee: {preparation.quote.fee} · Total quoted debit: {preparation.quote.buyerDebit} · Maximum debit: {preparation.maximumDebitBaseUnits} collateral base units</p> : null}<p>{preparation.note}</p><details><summary>Unsigned trade transaction</summary><textarea value={preparation.unsignedTransaction} readOnly rows={6} aria-label="Unsigned trade transaction data" /></details></div> : null}
   </form>;

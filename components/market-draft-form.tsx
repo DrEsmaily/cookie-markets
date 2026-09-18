@@ -8,13 +8,15 @@ import {
   deriveMarketAddresses,
 } from "@/lib/cookie-markets-program";
 import { MarketDraft, validateMarketDraft } from "@/lib/protocol";
-import { hashMarketTerms } from "@/lib/market-terms";
+import { createPriceMarketTerms, hashMarketTerms } from "@/lib/market-terms";
 import { createMarketTermsRecord, type MarketTermsRecord } from "@/lib/market-terms-record";
 
 const initialDraft: MarketDraft = { question: "", resolutionSource: "", resolutionRules: "", closesAt: "", resolvesAt: "" };
 
 export function MarketDraftForm() {
   const [draft, setDraft] = useState(initialDraft);
+  const [priceAsset, setPriceAsset] = useState<"BTC" | "ETH">("BTC");
+  const [targetUsd, setTargetUsd] = useState("");
   const [collateralMint, setCollateralMint] = useState("");
   const [errors, setErrors] = useState<ReturnType<typeof validateMarketDraft>>({});
   const [isReady, setIsReady] = useState(false);
@@ -50,6 +52,20 @@ export function MarketDraftForm() {
     const nextErrors = validateMarketDraft(draft);
     setErrors(nextErrors);
     setIsReady(Object.keys(nextErrors).length === 0);
+  }
+
+  function applyPriceTemplate() {
+    try {
+      const settlesAt = new Date(draft.closesAt).toISOString();
+      if (Date.parse(settlesAt) <= Date.now()) throw new Error("Choose a future trading-close time.");
+      const terms = createPriceMarketTerms({ asset: priceAsset, targetUsd, settlesAt, source: draft.resolutionSource });
+      setDraft({ ...draft, ...terms, resolvesAt: draft.closesAt });
+      setIsReady(false);
+      setPreview(undefined);
+      setPrepareError(undefined);
+    } catch (error) {
+      setPrepareError(error instanceof Error ? error.message : "Check the price template fields.");
+    }
   }
 
   async function prepareInstructions() {
@@ -103,6 +119,13 @@ export function MarketDraftForm() {
 
   return (
     <form className="draft-form" onSubmit={review} noValidate>
+      <fieldset disabled={isPreparing}>
+        <legend>BTC / ETH price market</legend>
+        <Field label="Asset"><select value={priceAsset} onChange={(event) => setPriceAsset(event.target.value as "BTC" | "ETH")}><option value="BTC">BTC / USD</option><option value="ETH">ETH / USD</option></select></Field>
+        <Field label="Target USD price"><input inputMode="decimal" value={targetUsd} onChange={(event) => setTargetUsd(event.target.value)} placeholder="100000" /></Field>
+        <p>Set the exact price dataset below and a future trading-close time, then apply fixed rules. Local time is converted to UTC. Automated price collection is not connected yet.</p>
+        <button type="button" onClick={applyPriceTemplate}>Apply price-market rules</button>
+      </fieldset>
       <Field label="Market question" error={errors.question}><input value={draft.question} onChange={(event) => update("question", event.target.value)} placeholder="Will…?" /></Field>
       <Field label="Resolution source" error={errors.resolutionSource}><input value={draft.resolutionSource} onChange={(event) => update("resolutionSource", event.target.value)} placeholder="Exact oracle, explorer, publication, or public dataset" /></Field>
       <Field label="Resolution rules" error={errors.resolutionRules}><textarea rows={6} value={draft.resolutionRules} onChange={(event) => update("resolutionRules", event.target.value)} placeholder="Resolves Yes if… Resolves No if… Resolves Invalid if…" /></Field>
