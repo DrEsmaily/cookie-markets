@@ -436,6 +436,23 @@ test("protocol readiness fails closed on wrong RPC, absent program, or substitut
   assert.equal(await readVerifiedProtocol({ ...connection, getAccountInfo: async () => null }), null);
 });
 
+test("price markets commit exact USD thresholds UTC times and timestamped evidence rules", async () => {
+  const { createPriceMarketTerms, evaluatePriceMarketObservation, priceUsdUnits } = require("../.test-build/market-terms.js");
+  const spec = { asset: "BTC", targetUsd: "100000.00000000", settlesAt: "2030-09-30T18:00:00.000Z", source: "Approved BTC/USD dataset v1" };
+  const terms = createPriceMarketTerms(spec);
+  assert.match(terms.question, /\$100000 at 2030/);
+  assert.match(terms.resolutionRules, /60 seconds/);
+  await hashMarketTerms(terms);
+  const observation = { asset: "BTC", source: spec.source, priceUsd: "100000", observedAt: spec.settlesAt };
+  assert.equal(evaluatePriceMarketObservation(spec, observation), "yes");
+  assert.equal(evaluatePriceMarketObservation(spec, { ...observation, priceUsd: "99999.99999999" }), "no");
+  assert.equal(evaluatePriceMarketObservation(spec, { ...observation, observedAt: "2030-09-30T17:59:00.000Z" }), "yes");
+  for (const change of [{ source: "Other feed" }, { asset: "ETH" }, { observedAt: "2030-09-30T18:00:01.000Z" }, { observedAt: "2030-09-30T17:58:59.000Z" }, { priceUsd: "100000.000000001" }]) assert.throws(() => evaluatePriceMarketObservation(spec, { ...observation, ...change }));
+  for (const price of ["0", "-1", "1e5", "NaN", "01", "1.123456789", "1000000000"]) assert.throws(() => priceUsdUnits(price));
+  for (const change of [{ asset: "SOL" }, { source: "" }, { source: "feed\nchanged" }, { settlesAt: "2030-02-30T18:00:00.000Z" }, { settlesAt: "2030-09-30T18:00:00+00:00" }]) assert.throws(() => createPriceMarketTerms({ ...spec, ...change }));
+  await hashMarketTerms(createPriceMarketTerms({ ...spec, asset: "ETH", targetUsd: "5000" }));
+});
+
 test("readable market terms produce the exact committed hashes", async () => {
   const terms = { question: " Will this event happen? ", resolutionSource: " Public source ", resolutionRules: " Yes if the source reports the event; No otherwise. " };
   const hashed = await hashMarketTerms(terms);

@@ -11,6 +11,18 @@ test("HTTP ask discovery rejects invalid market addresses before accessing RPC",
 });
 
 const orderBase = { market: base.market, user: base.user, action: "fill", order: base.market, amount: "1", maximumDebit: "1", question: "Test?", resolutionSource: "Test", resolutionRules: "Test rules" };
+for (const [name, change] of [
+  ["unknown order type", { orderType: "pool" }],
+  ["bid missing minimum payment", { orderType: "bid", minimumProceeds: undefined }],
+  ["bid seller wrapping", { orderType: "bid", minimumProceeds: "1", wrapNative: true }],
+  ["bid cancellation wrapping", { orderType: "bid", action: "cancel", wrapNative: true }],
+]) {
+  test(`HTTP bid preparation rejects ${name} before RPC access`, async () => {
+    const response = await fetch(`${process.env.TEST_APP_URL ?? "http://127.0.0.1:3001"}/api/orders/prepare`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...orderBase, ...change }), signal: AbortSignal.timeout(10000) });
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).unsignedTransaction, undefined);
+  });
+}
 for (const [name, body, status] of [
   ["malformed JSON", "{", 400],
   ["missing fields", "{}", 400],
