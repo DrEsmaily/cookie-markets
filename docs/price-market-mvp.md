@@ -8,6 +8,8 @@ The evidence window accepts observations at or before settlement, at most 60 sec
 
 Launch gates still open:
 
+The evidence selector chooses the latest qualifying observation from a supplied dataset, rejects mismatched assets/sources and noncanonical timestamps, and returns INVALID for conflicting latest prices, missing observations, or publication more than 24 hours late. Equivalent decimal representations are not conflicts. This is an offline validation helper, not an oracle: completeness, response authenticity, and the actual publication timestamp still require independent verification. It neither collects prices nor submits settlement transactions.
+
 - Select and verify a data provider with suitable historical/timestamped access, licensing, and outage policy. CoinMarketCap is a candidate, not an already connected source.
 - Bid API simulation/review is implemented through `POST /api/orders/prepare` with `orderType: "bid"` (omission retains existing asks). Placement quotes use the verified protocol fee rate and may explicitly wrap native collateral; fills require decimal `minimumProceeds` and cannot wrap native funds. Both placement/fills verify exact readable terms and simulate the unsigned transaction. Cancellation remains maker-only without a terms or open-market requirement. Buy/sell book selection is available on the market review screen. Signing/submission remains disabled.
 - Complete explicit wallet signing/submission/confirmation, positions/open orders, and settlement controls.
