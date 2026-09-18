@@ -80,6 +80,6 @@ Live account pages allow simulation of unsigned position transactions. Nightly m
 
 ## Next protocol milestone
 
-See [release checklist](docs/release-checklist.md) and [trading venue status](docs/trading-venues.md). Seller ask execution exists in the contract and unsigned trading review exists in the app, but bid escrow, AMM custody/liquidity, and signed app trading remain unimplemented. Complete-set minting alone is not an exchange. Durable evidence publication, independent security review, operational safeguards, and explicit deployment approval remain necessary before calling this a live prediction-market product.
+See [release checklist](docs/release-checklist.md) and [trading venue status](docs/trading-venues.md). Seller ask and collateral-funded bid primitives exist in the contract; unsigned seller-order review exists in the app. Bid discovery/review, best-price matching, AMM custody/liquidity, and signed app trading remain unfinished. Complete-set minting alone is not an exchange. Durable evidence publication, independent security review, operational safeguards, and explicit deployment approval remain necessary before calling this a live prediction-market product.
 
 No wallet secrets, private keys, or deployment configuration are included in this repository.
