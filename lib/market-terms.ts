@@ -7,6 +7,10 @@ export type PriceMarketSpec = {
   source: string;
 };
 
+export type PriceObservation = {
+  asset: "BTC" | "ETH"; source: string; priceUsd: string; observedAt: string;
+};
+
 export function priceUsdUnits(value: string): bigint {
   if (!/^(0|[1-9]\d{0,8})(\.\d{1,8})?$/.test(value)) throw new RangeError("USD price must be a positive decimal with at most eight fractional digits.");
   const [whole, fraction = ""] = value.split(".");
@@ -30,9 +34,7 @@ export function createPriceMarketTerms(spec: PriceMarketSpec): MarketTerms {
   };
 }
 
-export function evaluatePriceMarketObservation(spec: PriceMarketSpec, observation: {
-  asset: "BTC" | "ETH"; source: string; priceUsd: string; observedAt: string;
-}) {
+export function evaluatePriceMarketObservation(spec: PriceMarketSpec, observation: PriceObservation) {
   createPriceMarketTerms(spec);
   const observedAt = Date.parse(observation.observedAt);
   const settlesAt = Date.parse(spec.settlesAt);
@@ -41,6 +43,34 @@ export function evaluatePriceMarketObservation(spec: PriceMarketSpec, observatio
     throw new RangeError("Price evidence does not match the market source, asset, or timestamp window.");
   }
   return priceUsdUnits(observation.priceUsd) >= priceUsdUnits(spec.targetUsd) ? "yes" as const : "no" as const;
+}
+
+export function selectPriceMarketEvidence(spec: PriceMarketSpec, observations: readonly PriceObservation[], publishedAt: string) {
+  createPriceMarketTerms(spec);
+  const publication = Date.parse(publishedAt);
+  const settlement = Date.parse(spec.settlesAt);
+  if (!Number.isFinite(publication) || new Date(publication).toISOString() !== publishedAt || publication < settlement) {
+    throw new RangeError("Evidence publication must have a canonical UTC timestamp at or after settlement.");
+  }
+  if (observations.length > 10_000) throw new RangeError("Too many price observations.");
+  let selected: PriceObservation | undefined;
+  for (const observation of observations) {
+    const timestamp = Date.parse(observation.observedAt);
+    if (observation.asset !== spec.asset || observation.source !== spec.source.trim()
+      || !Number.isFinite(timestamp) || new Date(timestamp).toISOString() !== observation.observedAt) {
+      throw new RangeError("Evidence contains a mismatched dataset or noncanonical observation timestamp.");
+    }
+    priceUsdUnits(observation.priceUsd);
+    if (timestamp > settlement || settlement - timestamp > 60_000) continue;
+    if (!selected || timestamp > Date.parse(selected.observedAt)) selected = observation;
+  }
+  if (publication > settlement + 86_400_000) return { outcome: "invalid" as const, reason: "Evidence publication deadline missed." };
+  if (!selected) return { outcome: "invalid" as const, reason: "No observation within the settlement window." };
+  const price = priceUsdUnits(selected.priceUsd);
+  if (observations.some((observation) => observation.observedAt === selected.observedAt && priceUsdUnits(observation.priceUsd) !== price)) {
+    return { outcome: "invalid" as const, reason: "Conflicting prices at the latest observation timestamp." };
+  }
+  return { outcome: evaluatePriceMarketObservation(spec, selected), observation: { ...selected } };
 }
 
 export async function hashMarketTerms(terms: MarketTerms) {
