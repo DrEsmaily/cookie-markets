@@ -7,31 +7,9 @@ import { readVerifiedProtocol } from "@/lib/protocol-reader";
 import { buildPositionTransactionInstructions } from "@/lib/position-transactions";
 import { parseTokenAmount } from "@/lib/token-amounts";
 import { hashHex, hashMarketTerms } from "@/lib/market-terms";
+import { readPreparationBody, RequestSizeError } from "@/lib/preparation-body";
 
 export const dynamic = "force-dynamic";
-
-class RequestSizeError extends Error {}
-
-async function readPreparationBody(request: Request): Promise<string> {
-  const reader = request.body?.getReader();
-  if (!reader) return "";
-  const decoder = new TextDecoder();
-  let size = 0;
-  let text = "";
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > 8192) {
-        await reader.cancel();
-        throw new RequestSizeError("Request is too large.");
-      }
-      text += decoder.decode(value, { stream: true });
-    }
-    return text + decoder.decode();
-  } finally { reader.releaseLock(); }
-}
 
 export async function POST(request: Request) {
   try {
