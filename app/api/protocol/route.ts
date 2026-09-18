@@ -5,9 +5,51 @@ import { COOKIE_MARKETS_PROGRAM_ID, deriveConfigAddress } from "@/lib/cookie-mar
 import { decodeMarketAccount } from "@/lib/protocol-accounts";
 import { readVerifiedAsks, readVerifiedBids, readVerifiedProtocol, readVerifiedPosition } from "@/lib/protocol-reader";
 import { verifyPublishedMarketTerms } from "@/lib/market-terms-record";
-import { publishedMarketTerms } from "@/lib/published-market-terms";
+import { readPublishedMarketTerms, publishVerifiedMarketTerms } from "@/lib/published-market-terms";
+import { createMarketTermsRecord, createPriceEvidenceRecord } from "@/lib/market-terms-record";
+import { coinbasePriceMarketSpec, createPriceMarketTerms, collectCoinbasePriceEvidence } from "@/lib/market-terms";
+import { readPreparationBody, RequestSizeError } from "@/lib/preparation-body";
 
 export const dynamic = "force-dynamic";
+
+export async function POST(request: Request) {
+  try {
+    const body = JSON.parse(await readPreparationBody(request));
+    if (!body || typeof body.market !== "string") return NextResponse.json({ error: "Provide a market address and its exact readable terms." }, { status: 400 });
+    if (body.action !== undefined && body.action !== "collect-price-evidence") return NextResponse.json({ error: "Unknown protocol action." }, { status: 400 });
+    const collecting = body.action === "collect-price-evidence";
+    let priceSpec;
+    if (collecting) {
+      if ((body.asset !== "BTC" && body.asset !== "ETH") || typeof body.targetUsd !== "string" || typeof body.settlesAt !== "string") return NextResponse.json({ error: "Provide BTC or ETH, a decimal USD threshold and the exact UTC settlement minute." }, { status: 400 });
+      priceSpec = coinbasePriceMarketSpec(body.asset, body.targetUsd, body.settlesAt);
+    } else if (typeof body.question !== "string" || typeof body.resolutionSource !== "string" || typeof body.resolutionRules !== "string") return NextResponse.json({ error: "Provide a market address and its exact readable terms." }, { status: 400 });
+    let address: PublicKey;
+    try { address = new PublicKey(body.market); }
+    catch { return NextResponse.json({ error: "Provide a valid market address." }, { status: 400 }); }
+    let record;
+    try { record = await createMarketTermsRecord(address.toBase58(), priceSpec ? createPriceMarketTerms(priceSpec) : body); }
+    catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid readable terms." }, { status: 400 }); }
+    const protocol = await readVerifiedProtocol(cookieChainConnection);
+    if (!protocol) return NextResponse.json({ error: "Protocol is not deployed." }, { status: 409 });
+    const account = await cookieChainConnection.getAccountInfo(address, "confirmed");
+    if (!account) return NextResponse.json({ error: "Market was not found." }, { status: 404 });
+    const market = decodeMarketAccount(address, account);
+    if (market.collateralMint !== protocol.collateralMint) throw new Error("Market collateral does not match protocol config.");
+    try { await verifyPublishedMarketTerms([record], market); }
+    catch { return NextResponse.json({ error: "Readable terms do not match the immutable on-chain hashes." }, { status: 409 }); }
+    if (priceSpec) {
+      const settlement = BigInt(Date.parse(priceSpec.settlesAt) / 1000);
+      if (BigInt(market.closesAt) !== settlement || BigInt(market.resolveAfter) !== settlement) return NextResponse.json({ error: "Market schedule does not match the fixed price template." }, { status: 409 });
+      const evidence = await collectCoinbasePriceEvidence(priceSpec);
+      const artifact = await createPriceEvidenceRecord({ market, spec: priceSpec, observations: evidence.observations, publishedAt: evidence.collectedAt, originalResponse: evidence.originalResponse });
+      return NextResponse.json({ ...artifact, providerUrl: evidence.url, note: "Evidence candidate only. The timestamp records collection, not certified public publication. No outcome proposal or signature was requested. Publish and independently verify this evidence before resolver submission." });
+    }
+    const result = await publishVerifiedMarketTerms(record, market);
+    return NextResponse.json({ ...result, record, note: "Public immutable terms stored. No wallet signature or transaction was requested." }, { status: result.created ? 201 : 200 });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Terms publication failed." }, { status: error instanceof RequestSizeError ? 413 : error instanceof SyntaxError || error instanceof RangeError ? 400 : 503 });
+  }
+}
 
 export async function GET(request: Request) {
   try {
@@ -60,7 +102,7 @@ export async function GET(request: Request) {
         const market = decodeMarketAccount(pubkey, account);
         if (market.collateralMint !== config.collateralMint) throw new Error("Market collateral does not match protocol config.");
         try {
-          return { ...market, terms: await verifyPublishedMarketTerms(publishedMarketTerms, market) };
+          return { ...market, terms: await verifyPublishedMarketTerms(await readPublishedMarketTerms(market.address), market) };
         } catch (error) {
           return { ...market, termsError: error instanceof Error ? error.message : "Published terms verification failed." };
         }
