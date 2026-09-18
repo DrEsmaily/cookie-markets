@@ -174,7 +174,7 @@ async function testClientPositions(config, collateralMint) {
   await testOrders(config, collateralMint, market, yesMint, noMint, deposit.userYes, deposit.userCollateral, vault, closesAt);
   const withdrawal = await buildPositionTransactionInstructions({ ...params, action: "merge" });
   await send(withdrawal.instructions);
-  assert.equal((await connection.getTokenAccountBalance(deposit.userCollateral)).value.amount, "131");
+  assert.equal((await connection.getTokenAccountBalance(deposit.userCollateral)).value.amount, "126");
   for (const account of [deposit.userYes, deposit.userNo, vault]) assert.equal((await connection.getTokenAccountBalance(account)).value.amount, "0");
   console.log("Frontend transaction builders passed on validator: idempotent ATA setup, exact collateral deposit, YES/NO issuance, and complete-set withdrawal.");
 }
@@ -201,6 +201,9 @@ async function testOrders(config, collateralMint, market, yesMint, noMint, maker
   const substituted = [...fillKeys];
   substituted[3] = meta(noMint);
   await expectProgramError([instruction("fill_ask", substituted, integer(30), integer(16))], [outsider], "ConstraintHasOne");
+  const substitutedFee = [...fillKeys];
+  substitutedFee[7] = meta(takerCollateral, true);
+  await expectProgramError([instruction("fill_ask", substitutedFee, integer(30), integer(16))], [outsider], "ConstraintRaw");
   const mintCollateral = (value) => new TransactionInstruction({ programId: tokenProgram, keys: [meta(collateralMint, true), meta(takerCollateral, true), meta(admin.publicKey, false, true)], data: Buffer.concat([Buffer.from([7]), integer(value)]) });
   await send([mintCollateral(16)]);
   const identity = { market, maker: admin.publicKey, nonce: 1n, shareMint: yesMint };
@@ -252,7 +255,7 @@ async function testOrders(config, collateralMint, market, yesMint, noMint, maker
   const latest = await connection.getLatestBlockhash("confirmed");
   const unsignedFill = new Transaction({ feePayer: outsider.publicKey, ...latest }).add(...assembledFill.instructions);
   const preview = await connection.simulateTransaction(new VersionedTransaction(unsignedFill.compileMessage()), { sigVerify: false, commitment: "confirmed" });
-  assert.equal(preview.value.err, null);
+  assert.equal(preview.value.err, null, JSON.stringify(preview.value.logs));
   assert.equal((await connection.getTokenAccountBalance(buyerCollateralAta)).value.amount, "6");
   assert.equal((await connection.getTokenAccountBalance(buyerSharesAta)).value.amount, "0");
   await send(assembledFill.instructions, [outsider]);
@@ -261,7 +264,18 @@ async function testOrders(config, collateralMint, market, yesMint, noMint, maker
   assert.equal((await connection.getTokenAccountBalance(makerCollateral)).value.amount, "31");
   const assembledCancel = await buildAskTransactionInstructions(verifiedMarket, admin.publicKey, { action: "cancel", order: decodeAskOrder(assembledOrderAddress, await connection.getAccountInfo(assembledOrderAddress), verifiedMarket) });
   await send(assembledCancel.instructions);
-  await send([new TransactionInstruction({ programId: tokenProgram, keys: [meta(buyerSharesAta, true), meta(yesMint), meta(makerShares, true), meta(outsider.publicKey, false, true)], data: Buffer.concat([Buffer.from([12]), integer(10), Buffer.from([9])]) })], [outsider]);
+  const resale = await buildAskTransactionInstructions(verifiedMarket, outsider.publicKey, { action: "place", nonce: 1n, side: "yes", shares: 10n, price: 500000n, expiresAt: BigInt(closesAt) });
+  await send(resale.instructions, [outsider]);
+  const resaleAddress = new PublicKey(resale.order);
+  const resaleOrder = decodeAskOrder(resaleAddress, await connection.getAccountInfo(resaleAddress), verifiedMarket);
+  const buyback = await buildAskTransactionInstructions(verifiedMarket, admin.publicKey, { action: "fill", order: resaleOrder, shares: 10n, maximumDebit: 6n });
+  assert.equal(buyback.quote.buyerDebit, 6n);
+  await send(buyback.instructions);
+  assert.equal((await connection.getTokenAccountBalance(makerCollateral)).value.amount, "26");
+  assert.equal((await connection.getTokenAccountBalance(buyerCollateralAta)).value.amount, "5");
+  assert.equal((await connection.getTokenAccountBalance(makerShares)).value.amount, "100");
+  assert.equal((await connection.getTokenAccountBalance(buyerSharesAta)).value.amount, "0");
+  console.log("Fee-recipient aliasing passed: seller/fee recipient shares one ATA, buyer/fee recipient shares one ATA, and exact net balances preserve full backing.");
   console.log("Assembled ask transactions passed: buyer-paid recipient ATAs, unsigned simulation leaves balances unchanged, real test execution transfers shares/collateral, and cancellation.");
   console.log("Ask escrow passed: partial fills, cumulative fees, slippage, substituted mint, submitted rollback, maker-only cancellation, replay rejection, and unchanged backing.");
 }
