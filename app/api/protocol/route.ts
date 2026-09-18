@@ -3,7 +3,7 @@ import { PublicKey } from "@solana/web3.js";
 import { cookieChainConnection } from "@/lib/cookie-chain";
 import { COOKIE_MARKETS_PROGRAM_ID, deriveConfigAddress } from "@/lib/cookie-markets-program";
 import { decodeMarketAccount } from "@/lib/protocol-accounts";
-import { readVerifiedAsks, readVerifiedProtocol } from "@/lib/protocol-reader";
+import { readVerifiedAsks, readVerifiedBids, readVerifiedProtocol } from "@/lib/protocol-reader";
 import { verifyPublishedMarketTerms } from "@/lib/market-terms-record";
 import { publishedMarketTerms } from "@/lib/published-market-terms";
 
@@ -11,7 +11,12 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
-    const asksAddress = new URL(request.url).searchParams.get("asks");
+    const parameters = new URL(request.url).searchParams;
+    if (parameters.has("asks") && parameters.has("bids")) {
+      return NextResponse.json({ error: "Request one order side at a time." }, { status: 400 });
+    }
+    const bidsRequested = parameters.has("bids");
+    const asksAddress = parameters.get(bidsRequested ? "bids" : "asks");
     let asksMarket: PublicKey | undefined;
     if (asksAddress !== null) {
       try { asksMarket = new PublicKey(asksAddress); }
@@ -25,6 +30,10 @@ export async function GET(request: Request) {
       if (!account) return NextResponse.json({ error: "Market was not found." }, { status: 404 });
       const market = decodeMarketAccount(asksMarket, account);
       if (market.collateralMint !== config.collateralMint) throw new Error("Market collateral does not match protocol config.");
+      if (bidsRequested) {
+        const bids = await readVerifiedBids(cookieChainConnection, market);
+        return NextResponse.json({ deployed: true, market, bids });
+      }
       const asks = await readVerifiedAsks(cookieChainConnection, market);
       return NextResponse.json({ deployed: true, market, asks });
     }
