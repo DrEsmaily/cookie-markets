@@ -174,7 +174,7 @@ async function testClientPositions(config, collateralMint) {
   await testOrders(config, collateralMint, market, yesMint, noMint, deposit.userYes, deposit.userCollateral, vault, closesAt);
   const withdrawal = await buildPositionTransactionInstructions({ ...params, action: "merge" });
   await send(withdrawal.instructions);
-  assert.equal((await connection.getTokenAccountBalance(deposit.userCollateral)).value.amount, "125");
+  assert.equal((await connection.getTokenAccountBalance(deposit.userCollateral)).value.amount, "131");
   for (const account of [deposit.userYes, deposit.userNo, vault]) assert.equal((await connection.getTokenAccountBalance(account)).value.amount, "0");
   console.log("Frontend transaction builders passed on validator: idempotent ATA setup, exact collateral deposit, YES/NO issuance, and complete-set withdrawal.");
 }
@@ -239,6 +239,30 @@ async function testOrders(config, collateralMint, market, yesMint, noMint, maker
   assert.equal((await connection.getTokenAccountBalance(backingVault)).value.amount, "100");
   assert.equal((await connection.getAccountInfo(market)).data.readBigUInt64LE(298), 100n);
   await send([new TransactionInstruction({ programId: tokenProgram, keys: [meta(takerShares, true), meta(yesMint), meta(makerShares, true), meta(outsider.publicKey, false, true)], data: Buffer.concat([Buffer.from([12]), integer(50), Buffer.from([9])]) })], [outsider]);
+  const { buildAskTransactionInstructions } = require("../.test-build/ask-transactions.js");
+  const assembledPlace = await buildAskTransactionInstructions(verifiedMarket, admin.publicKey, { action: "place", nonce: 2n, side: "yes", shares: 10n, price: 500000n, expiresAt: BigInt(closesAt) });
+  await send(assembledPlace.instructions);
+  const assembledOrderAddress = new PublicKey(assembledPlace.order);
+  const assembledOrder = decodeAskOrder(assembledOrderAddress, await connection.getAccountInfo(assembledOrderAddress), verifiedMarket);
+  const assembledFill = await buildAskTransactionInstructions(verifiedMarket, outsider.publicKey, { action: "fill", order: assembledOrder, shares: 10n, maximumDebit: 6n });
+  await send(assembledFill.instructions.slice(0, 4), [outsider]);
+  const buyerCollateralAta = assembledFill.instructions[0].keys[1].pubkey;
+  const buyerSharesAta = assembledFill.instructions[1].keys[1].pubkey;
+  await send([new TransactionInstruction({ programId: tokenProgram, keys: [meta(collateralMint, true), meta(buyerCollateralAta, true), meta(admin.publicKey, false, true)], data: Buffer.concat([Buffer.from([7]), integer(6)]) })]);
+  const latest = await connection.getLatestBlockhash("confirmed");
+  const unsignedFill = new Transaction({ feePayer: outsider.publicKey, ...latest }).add(...assembledFill.instructions);
+  const preview = await connection.simulateTransaction(new VersionedTransaction(unsignedFill.compileMessage()), { sigVerify: false, commitment: "confirmed" });
+  assert.equal(preview.value.err, null);
+  assert.equal((await connection.getTokenAccountBalance(buyerCollateralAta)).value.amount, "6");
+  assert.equal((await connection.getTokenAccountBalance(buyerSharesAta)).value.amount, "0");
+  await send(assembledFill.instructions, [outsider]);
+  assert.equal((await connection.getTokenAccountBalance(buyerCollateralAta)).value.amount, "0");
+  assert.equal((await connection.getTokenAccountBalance(buyerSharesAta)).value.amount, "10");
+  assert.equal((await connection.getTokenAccountBalance(makerCollateral)).value.amount, "31");
+  const assembledCancel = await buildAskTransactionInstructions(verifiedMarket, admin.publicKey, { action: "cancel", order: decodeAskOrder(assembledOrderAddress, await connection.getAccountInfo(assembledOrderAddress), verifiedMarket) });
+  await send(assembledCancel.instructions);
+  await send([new TransactionInstruction({ programId: tokenProgram, keys: [meta(buyerSharesAta, true), meta(yesMint), meta(makerShares, true), meta(outsider.publicKey, false, true)], data: Buffer.concat([Buffer.from([12]), integer(10), Buffer.from([9])]) })], [outsider]);
+  console.log("Assembled ask transactions passed: buyer-paid recipient ATAs, unsigned simulation leaves balances unchanged, real test execution transfers shares/collateral, and cancellation.");
   console.log("Ask escrow passed: partial fills, cumulative fees, slippage, substituted mint, submitted rollback, maker-only cancellation, replay rejection, and unchanged backing.");
 }
 
