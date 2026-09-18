@@ -453,6 +453,25 @@ test("price markets commit exact USD thresholds UTC times and timestamped eviden
   await hashMarketTerms(createPriceMarketTerms({ ...spec, asset: "ETH", targetUsd: "5000" }));
 });
 
+test("settlement evidence selects latest qualifying prices and rejects ambiguous or late evidence", () => {
+  const { selectPriceMarketEvidence } = require("../.test-build/market-terms.js");
+  const spec = { asset: "ETH", targetUsd: "5000", settlesAt: "2030-09-30T18:00:00.000Z", source: "Approved ETH/USD dataset v1" };
+  const latest = { asset: spec.asset, source: spec.source, priceUsd: "5000", observedAt: spec.settlesAt };
+  const earlier = { ...latest, priceUsd: "4999", observedAt: "2030-09-30T17:59:00.000Z" };
+  const future = { ...latest, priceUsd: "4990", observedAt: "2030-09-30T18:00:01.000Z" };
+  const publication = "2030-10-01T18:00:00.000Z";
+  assert.deepEqual(selectPriceMarketEvidence(spec, [future, latest, earlier], publication), { outcome: "yes", observation: latest });
+  assert.equal(selectPriceMarketEvidence(spec, [earlier], publication).outcome, "no");
+  assert.equal(selectPriceMarketEvidence(spec, [latest, { ...latest, priceUsd: "4999" }], publication).outcome, "invalid");
+  assert.equal(selectPriceMarketEvidence(spec, [latest, { ...latest, priceUsd: "5000.00000000" }], publication).outcome, "yes");
+  assert.equal(selectPriceMarketEvidence(spec, [latest], "2030-10-01T18:00:00.001Z").outcome, "invalid");
+  assert.equal(selectPriceMarketEvidence(spec, [future], publication).outcome, "invalid");
+  assert.equal(selectPriceMarketEvidence(spec, [], publication).outcome, "invalid");
+  for (const change of [{ asset: "BTC" }, { source: "Other dataset" }, { observedAt: "2030-09-30T18:00:00+00:00" }, { priceUsd: "NaN" }]) assert.throws(() => selectPriceMarketEvidence(spec, [{ ...latest, ...change }], publication));
+  assert.throws(() => selectPriceMarketEvidence(spec, [latest], "2030-09-30T17:59:59.000Z"));
+  assert.throws(() => selectPriceMarketEvidence(spec, Array(10001).fill(latest), publication));
+});
+
 test("readable market terms produce the exact committed hashes", async () => {
   const terms = { question: " Will this event happen? ", resolutionSource: " Public source ", resolutionRules: " Yes if the source reports the event; No otherwise. " };
   const hashed = await hashMarketTerms(terms);
