@@ -52,6 +52,33 @@ test("ask assembly preserves maker cancellation after market close and rejects u
   await assert.rejects(buildAskTransactionInstructions(market, ask.order, { action: "cancel", order }));
 });
 
+test("bid assembly funds the full budget and preserves seller minimum proceeds", async () => {
+  const { buildBidTransactionInstructions } = require("../.test-build/ask-transactions.js");
+  const { deriveBidAddresses } = require("../.test-build/cookie-markets-program.js");
+  const bid = deriveBidAddresses(addresses.market, maker, 1n);
+  const bidOrder = { ...order, address: bid.order.toBase58(), collateralMint: market.collateralMint };
+  const operation = { action: "place", nonce: 1n, side: "yes", shares: 80n, price: 500000n, expiresAt: 1900000000n, feeBps: 30, wrapNative: true };
+  const placed = await buildBidTransactionInstructions(market, maker, operation);
+  assert.equal(placed.quote.buyerDebit, 41n);
+  assert.equal(placed.instructions.length, 4);
+  assert.equal(placed.instructions[1].data.readBigUInt64LE(4), 41n);
+  assert.equal(placed.order, bidOrder.address);
+  const filled = await buildBidTransactionInstructions(market, taker, { action: "fill", order: bidOrder, shares: 30n, minimumProceeds: 15n });
+  assert.equal(filled.quote.collateral, 15n);
+  assert.equal(filled.instructions.length, 4);
+  for (const instruction of filled.instructions.slice(0, 3)) assert.ok(instruction.keys[0].pubkey.equals(taker));
+  assert.equal(filled.instructions[3].data.readBigUInt64LE(16), 15n);
+  const cancelled = await buildBidTransactionInstructions({ ...market, status: "resolved" }, maker, { action: "cancel", order: bidOrder });
+  assert.equal(cancelled.instructions.length, 2);
+  assert.ok(cancelled.instructions[1].keys[1].pubkey.equals(NATIVE_MINT));
+  for (const change of [{ minimumProceeds: 16n }, { minimumProceeds: -1n }, { shares: 81n }, { order: { ...bidOrder, collateralMint: maker.toBase58() } }, { order: { ...bidOrder, cancelled: true } }]) {
+    await assert.rejects(buildBidTransactionInstructions(market, taker, { action: "fill", order: bidOrder, shares: 30n, minimumProceeds: 15n, ...change }));
+  }
+  await assert.rejects(buildBidTransactionInstructions(market, taker, { action: "cancel", order: bidOrder }));
+  await assert.rejects(buildBidTransactionInstructions(market, maker, { action: "fill", order: bidOrder, shares: 30n, minimumProceeds: 15n }));
+  await assert.rejects(buildBidTransactionInstructions({ ...market, collateralMint: maker.toBase58() }, maker, operation));
+});
+
 test("preparation body limit counts streamed UTF-8 bytes and cancels oversized requests", async () => {
   const text = JSON.stringify({ question: "سوال" });
   assert.equal(await readPreparationBody(new Request("http://localhost", { method: "POST", body: text })), text);
