@@ -30,6 +30,7 @@ A prediction-market application for Cookie Chain, with a Next.js frontend and an
 - Complete-set transaction assembly with idempotent associated-account setup and explicit native wrapping.
 - Unsigned deposit, merge, and redemption simulation at `POST /api/positions/prepare`. Deposit terms must match the immutable on-chain hashes. No signing or broadcasting endpoint exists.
 - A curated [public market terms registry](docs/market-terms-publication.md) stored in Git, with draft JSON export and verification of published text against the exact market, network, program, and immutable hashes.
+- Seller ask escrow with atomic partial fills, cumulative fees, maximum-debit protection, and maker-only cancellation. Client builders and strict order/escrow verification support read-only discovery at `/api/protocol?asks=<market-address>`. Validator tests execute the builders against the contract; this is not yet an app trading flow.
 
 ## Run locally
 
@@ -78,6 +79,6 @@ Live account pages allow simulation of unsigned position transactions. Nightly m
 
 ## Next protocol milestone
 
-See [release checklist](docs/release-checklist.md). Single-side purchases, executable price quotes, and liquidity are not implemented: complete-set minting is not an exchange. A matching/liquidity mechanism, durable public market/evidence metadata, independent security review, and explicit deployment approval remain necessary before calling this a live prediction-market product.
+See [release checklist](docs/release-checklist.md) and [trading venue status](docs/trading-venues.md). Seller ask execution exists in the contract, but bid escrow, AMM custody/liquidity, unsigned trading review/simulation, and app trading flows remain unimplemented. Complete-set minting alone is not an exchange. Durable evidence publication, independent security review, operational safeguards, and explicit deployment approval remain necessary before calling this a live prediction-market product.
 
 No wallet secrets, private keys, or deployment configuration are included in this repository.
