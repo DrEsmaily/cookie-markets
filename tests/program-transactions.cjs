@@ -215,7 +215,7 @@ async function testOrders(config, collateralMint, market, yesMint, noMint, maker
   const cancelKeys = [meta(order, true), meta(yesMint), meta(escrow, true), meta(makerShares, true), meta(admin.publicKey, false, true), meta(tokenProgram)];
   const badCancel = [...cancelKeys];
   badCancel[4] = meta(outsider.publicKey, false, true);
-  await expectProgramError([instruction("cancel_ask", badCancel)], [outsider], "ConstraintHasOne");
+  await expectProgramError([instruction("cancel_ask", badCancel)], [outsider], "ConstraintSeeds");
   await send([instruction("cancel_ask", cancelKeys)]);
   assert.equal((await connection.getTokenAccountBalance(escrow)).value.amount, "0");
   assert.equal((await connection.getTokenAccountBalance(makerShares)).value.amount, "50");
@@ -309,8 +309,8 @@ async function main() {
   assert.equal((await connection.getAccountInfo(market)).data.readBigUInt64LE(298), 1n);
   console.log("Collateral custody passed: split, partial merge, submitted rollback after the first burn, and deliberate share burns leave their matching collateral locked.");
   console.log("Local-validator transactions passed: initialization, mint/vault creation, market opening, unauthorized signer, repeated opening, premature locking.");
-  await testSettlement(config, collateral.publicKey);
   await testClientPositions(config, collateral.publicKey);
+  await testSettlement(config, collateral.publicKey);
   await testNativeWrapping();
 }
 
