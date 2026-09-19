@@ -1,10 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { COOKIE_CHAIN } from "@/lib/cookie-chain-config";
+import { formatTokenAmount } from "@/lib/token-amounts";
 
 export type NightlyAccount = { address: string; chains?: readonly string[] };
 type WalletActivity = { signature: string; slot: number; blockTime: number | null; status: "confirmed" | "failed" };
+type PortfolioPosition = { market: string; question: string; status: string; outcome: string; yes: string; no: string; creatorLiquidity: string; claimable: string };
 type NightlyProvider = {
   solana?: {
     genesisHash?: string;
@@ -38,6 +41,7 @@ export function WalletButton() {
   const [address, setAddress] = useState<string>();
   const [balance, setBalance] = useState<number>();
   const [activity, setActivity] = useState<WalletActivity[]>([]);
+  const [portfolio, setPortfolio] = useState<{ decimals: number; positions: PortfolioPosition[] }>();
   const [message, setMessage] = useState<string>();
   const [isConnecting, setIsConnecting] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
@@ -54,6 +58,12 @@ export function WalletButton() {
     if (!response.ok) return;
     const data = await response.json() as { activity: WalletActivity[] };
     setActivity(data.activity);
+  }, []);
+
+  const loadPortfolio = useCallback(async (walletAddress: string) => {
+    const response = await fetch(`/api/portfolio/${encodeURIComponent(walletAddress)}`, { cache: "no-store" });
+    if (!response.ok) return;
+    setPortfolio(await response.json() as { decimals: number; positions: PortfolioPosition[] });
   }, []);
 
   const connect = useCallback(async (silent = false) => {
@@ -73,7 +83,7 @@ export function WalletButton() {
         return;
       }
       setAddress(account.address);
-      await Promise.all([loadBalance(account.address), loadActivity(account.address)]);
+      await Promise.all([loadBalance(account.address), loadActivity(account.address), loadPortfolio(account.address)]);
       const activeGenesisHash = window.nightly?.solana?.genesisHash;
       if (activeGenesisHash && activeGenesisHash !== COOKIE_CHAIN.genesisHash) {
         setMessage("Nightly is connected, but not to Cookie Chain. Select the Cookie Chain custom network before trading.");
@@ -83,7 +93,7 @@ export function WalletButton() {
     } finally {
       if (!silent) setIsConnecting(false);
     }
-  }, [loadActivity, loadBalance]);
+  }, [loadActivity, loadBalance, loadPortfolio]);
 
   useEffect(() => {
     const silentConnect = window.setTimeout(() => void connect(true), 250);
@@ -92,15 +102,16 @@ export function WalletButton() {
 
   useEffect(() => {
     if (!address) return;
-    const refresh = window.setInterval(() => void loadBalance(address), 30_000);
+    const refresh = window.setInterval(() => void Promise.all([loadBalance(address), loadPortfolio(address)]), 15_000);
     return () => window.clearInterval(refresh);
-  }, [address, loadBalance]);
+  }, [address, loadBalance, loadPortfolio]);
 
   async function disconnect() {
     await window.nightly?.solana?.features?.["standard:disconnect"]?.disconnect();
     setAddress(undefined);
     setBalance(undefined);
     setActivity([]);
+    setPortfolio(undefined);
     setIsOpen(false);
     setMessage(undefined);
   }
@@ -115,6 +126,10 @@ export function WalletButton() {
       {address && isOpen ? <div className="wallet-panel">
         <div><span>Connected address</span><a href={`${COOKIE_CHAIN.explorerUrl}/address/${address}`} target="_blank" rel="noreferrer"><strong>{shortAddress(address)} ↗</strong></a></div>
         <div><span>Native balance</span><strong>{balance?.toLocaleString(undefined, { maximumFractionDigits: 4 }) ?? "—"} COOK</strong></div>
+        <div><span>Creator liquidity locked</span><strong>{portfolio ? formatTokenAmount(portfolio.positions.reduce((total, item) => total + BigInt(item.status === "resolved" ? "0" : item.creatorLiquidity), BigInt(0)), portfolio.decimals) : "—"} COOK</strong></div>
+        <div><span>Claimable now</span><strong>{portfolio ? formatTokenAmount(portfolio.positions.reduce((total, item) => total + BigInt(item.claimable), BigInt(0)), portfolio.decimals) : "—"} COOK</strong></div>
+        <p>Your positions</p>
+        {portfolio?.positions.length ? <ul className="portfolio-list">{portfolio.positions.map((position) => <li key={position.market}><Link href={`/markets/${position.market}`}><strong>{position.question}</strong><small>YES {formatTokenAmount(BigInt(position.yes), portfolio.decimals)} · NO {formatTokenAmount(BigInt(position.no), portfolio.decimals)} · claimable {formatTokenAmount(BigInt(position.claimable), portfolio.decimals)} COOK</small></Link></li>)}</ul> : <small>No on-chain positions found.</small>}
         <p>Recent activity</p>
         {activity.length ? <ul>{activity.map((item) => <li key={item.signature}><span className={item.status}>{item.status}</span><a href={`${COOKIE_CHAIN.explorerUrl}/tx/${item.signature}`} target="_blank" rel="noreferrer"><strong>{item.signature.slice(0, 5)}…{item.signature.slice(-5)} ↗</strong></a><small>{formatActivityTime(item.blockTime)} · slot {item.slot.toLocaleString()}</small></li>)}</ul> : <small>No recent transactions found.</small>}
       </div> : null}

@@ -19,6 +19,7 @@ type PoolState = {
 };
 
 type Prepared = { unsignedTransaction: string; feePayer: string; blockhash: string; lastValidBlockHeight: number; quote?: { sharesOut: string; fee: string } };
+type WalletPosition = { yes: { amountBaseUnits: string }; no: { amountBaseUnits: string } };
 
 function display(amount: string, decimals: number) {
   return formatTokenAmount(BigInt(amount), decimals);
@@ -27,6 +28,7 @@ function display(amount: string, decimals: number) {
 export function AmmTradePanel({ market }: { market: string }) {
   const [pool, setPool] = useState<PoolState>();
   const [wallet, setWallet] = useState<string>();
+  const [position, setPosition] = useState<WalletPosition>();
   const [side, setSide] = useState<"yes" | "no">("yes");
   const [amount, setAmount] = useState("");
   const [message, setMessage] = useState("Loading live pool…");
@@ -49,12 +51,18 @@ export function AmmTradePanel({ market }: { market: string }) {
     return account.address;
   }, []);
 
+  const refreshPosition = useCallback(async (address: string) => {
+    const response = await fetch(`/api/protocol?position=${encodeURIComponent(market)}&user=${encodeURIComponent(address)}`, { cache: "no-store" });
+    const data = await response.json() as { position?: WalletPosition };
+    if (response.ok && data.position) setPosition(data.position);
+  }, [market]);
+
   useEffect(() => {
     void refresh().catch((error) => setMessage(error instanceof Error ? error.message : "Pool is unavailable."));
-    void connect().catch(() => undefined);
+    void connect().then((address) => refreshPosition(address)).catch(() => undefined);
     const timer = window.setInterval(() => void refresh().catch(() => undefined), 8_000);
     return () => window.clearInterval(timer);
-  }, [connect, refresh]);
+  }, [connect, refresh, refreshPosition]);
 
   const maximum = useMemo(() => pool ? display(pool.maximumTrade, pool.decimals) : "0", [pool]);
 
@@ -75,6 +83,7 @@ export function AmmTradePanel({ market }: { market: string }) {
       setMessage(`Confirmed on Cookie Chain: ${signature.slice(0, 8)}…`);
       setAmount("");
       await refresh();
+      await refreshPosition(address);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Transaction cancelled.");
     } finally {
@@ -85,6 +94,9 @@ export function AmmTradePanel({ market }: { market: string }) {
   if (!pool) return <div className="amm-panel"><p role="status">{message}</p></div>;
   const trading = pool.status === "open";
   const creatorCanClaim = wallet === pool.creator && pool.status === "resolved" && !pool.settlementClaimed && BigInt(pool.creatorClaimable) > BigInt(0);
+  const yesHeld = BigInt(position?.yes.amountBaseUnits ?? "0");
+  const noHeld = BigInt(position?.no.amountBaseUnits ?? "0");
+  const walletClaimable = pool.outcome === "yes" ? yesHeld : pool.outcome === "no" ? noHeld : pool.outcome === "invalid" ? (yesHeld + noHeld) / BigInt(2) : BigInt(0);
 
   return (
     <div className="amm-panel">
@@ -92,6 +104,7 @@ export function AmmTradePanel({ market }: { market: string }) {
         <button type="button" className={side === "yes" ? "selected yes" : "yes"} onClick={() => setSide("yes")}><span>YES</span><strong>{pool.yesPercent.toFixed(1)}%</strong></button>
         <button type="button" className={side === "no" ? "selected no" : "no"} onClick={() => setSide("no")}><span>NO</span><strong>{pool.noPercent.toFixed(1)}%</strong></button>
       </div>
+      <div className="wallet-position"><span>Your YES <strong>{display(yesHeld.toString(), pool.decimals)}</strong></span><span>Your NO <strong>{display(noHeld.toString(), pool.decimals)}</strong></span><span>Claimable now <strong>{display(walletClaimable.toString(), pool.decimals)} COOK</strong></span></div>
       {trading ? <>
         <label className="amm-amount">Amount in COOK<input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder={`Maximum ${maximum}`} /></label>
         <div className="amm-limit"><span>Maximum this purchase</span><button type="button" onClick={() => setAmount(maximum)}>{maximum} COOK</button></div>

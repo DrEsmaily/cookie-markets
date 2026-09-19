@@ -46,3 +46,6 @@ h1 { max-width: 750px; margin: 0; font-size: clamp(45px, 7vw, 84px); letter-spac
 .amm-stats span { display: grid; gap: .25rem; padding: .8rem; border-radius: 12px; background: #f6f4ee; color: #73716b; }
 .amm-stats strong { color: #171717; }
 @media (max-width: 600px) { .amm-odds, .amm-stats { grid-template-columns: 1fr; } .amm-limit { align-items: flex-start; flex-direction: column; } }
+.wallet-panel .portfolio-list li { display: block; }.wallet-panel .portfolio-list a, .wallet-panel .portfolio-list small { display: block; }.wallet-panel .portfolio-list small { margin-top: 5px; text-align: left; line-height: 1.4; }
+.wallet-position { display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem; margin-top: 1rem; }.wallet-position span { display: grid; gap: .25rem; padding: .8rem; border-radius: 12px; background: #f6f4ee; color: #73716b; font-size: .85rem; }.wallet-position strong { color: #171717; }
+@media (max-width: 600px) { .wallet-position { grid-template-columns: 1fr; } }

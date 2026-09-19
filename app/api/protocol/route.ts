@@ -9,6 +9,7 @@ import { readPublishedMarketTerms, publishVerifiedMarketTerms } from "@/lib/publ
 import { createMarketTermsRecord, createPriceEvidenceRecord } from "@/lib/market-terms-record";
 import { coinbasePriceMarketSpec, createPriceMarketTerms, collectCoinbasePriceEvidence } from "@/lib/market-terms";
 import { readPreparationBody, RequestSizeError } from "@/lib/preparation-body";
+import { ammProbabilityBps, decodeAmmPool, deriveAmmAddresses } from "@/lib/amm-pool";
 
 export const dynamic = "force-dynamic";
 
@@ -101,10 +102,14 @@ export async function GET(request: Request) {
       const markets = await Promise.all(accounts.map(async ({ pubkey, account }) => {
         const market = decodeMarketAccount(pubkey, account);
         if (market.collateralMint !== config.collateralMint) throw new Error("Market collateral does not match protocol config.");
+        const poolAddress = deriveAmmAddresses(pubkey).pool;
+        const poolAccount = await cookieChainConnection.getAccountInfo(poolAddress, "confirmed");
+        const pool = poolAccount ? decodeAmmPool(poolAddress, poolAccount) : undefined;
+        const poolView = pool ? { yesPercent: ammProbabilityBps(pool.yesReserve, pool.noReserve) / 100, liquidity: pool.liquidity.toString() } : undefined;
         try {
-          return { ...market, terms: await verifyPublishedMarketTerms(await readPublishedMarketTerms(market.address), market) };
+          return { ...market, ...poolView, terms: await verifyPublishedMarketTerms(await readPublishedMarketTerms(market.address), market) };
         } catch (error) {
-          return { ...market, termsError: error instanceof Error ? error.message : "Published terms verification failed." };
+          return { ...market, ...poolView, termsError: error instanceof Error ? error.message : "Published terms verification failed." };
         }
       }));
       return NextResponse.json({ deployed: true, ...config, markets });
