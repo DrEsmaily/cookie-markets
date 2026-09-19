@@ -71,4 +71,4 @@ solana program set-upgrade-authority \
   --skip-new-upgrade-authority-signer-check \
   "$PROGRAM_ADDRESS"
 
-solana program show --url "$RPC_URL" "$PROGRAM_ADDRESS"
+solana program show --url "$RPC_URL" --keypair "$DEPLOYER_KEYPAIR" "$PROGRAM_ADDRESS"
