@@ -368,7 +368,7 @@ async function testAmmInitialization(config, collateralMint) {
   const creatorNo = await createTokenAccount(noMint);
   const liquidity = 1_000_000_000_000n;
   await send([new TransactionInstruction({ programId: tokenProgram, keys: [meta(collateralMint, true), meta(creatorCollateral, true), meta(admin.publicKey, false, true)], data: Buffer.concat([Buffer.from([7]), integer(liquidity)]) })]);
-  await send([client.buildInitializeAmmInstruction({ market, collateralMint, yesMint, noMint, vault, creator: admin.publicKey, creatorCollateral, creatorYes, creatorNo, liquidity, yesProbabilityBps: 6_000 })]);
+  await send([await client.buildInitializeAmmInstruction({ market, collateralMint, yesMint, noMint, vault, creator: admin.publicKey, creatorCollateral, creatorYes, creatorNo, liquidity, yesProbabilityBps: 6_000 })]);
   const { pool, poolYes, poolNo } = client.deriveAmmAddresses(market);
   assert.ok(await connection.getAccountInfo(pool));
   assert.equal((await connection.getTokenAccountBalance(vault)).value.amount, liquidity.toString());
