@@ -20,6 +20,7 @@ type PoolState = {
   totalCreatorFees: string;
   creatorClaimable: string;
   settlementClaimed: boolean;
+  closesAt: string;
 };
 
 type Prepared = { unsignedTransaction: string; feePayer: string; blockhash: string; lastValidBlockHeight: number; quote?: { sharesOut: string; fee: string } };
@@ -74,15 +75,21 @@ export function AmmTradePanel({ market }: { market: string }) {
     catch { return undefined; }
   }, [amount, pool, side]);
 
-  async function execute(action: "buy" | "claimCreator") {
+  async function execute(action: "buy" | "claimCreator" | "claimYes" | "claimNo") {
     setBusy(true);
     setMessage(action === "buy" ? "Checking the latest pool price…" : "Checking your settlement…");
     try {
+      if (!pool) throw new Error("The latest pool state is not available yet.");
       const address = wallet ?? await connect();
-      const response = await fetch("/api/amm", {
+      const claimingPosition = action === "claimYes" || action === "claimNo";
+      const claimSide = action === "claimYes" ? "yes" : "no";
+      const claimAmount = claimSide === "yes" ? yesHeld : noHeld;
+      const response = await fetch(claimingPosition ? "/api/positions/prepare" : "/api/amm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, market, user: address, side, amount }),
+        body: JSON.stringify(claimingPosition
+          ? { action: "redeem", market, user: address, side: claimSide, amount: display(claimAmount.toString(), pool.decimals), wrapNative: true }
+          : { action, market, user: address, side, amount }),
       });
       const prepared = await response.json() as Prepared & { error?: string };
       if (!response.ok) throw new Error(prepared.error ?? "The transaction could not be prepared.");
@@ -100,11 +107,13 @@ export function AmmTradePanel({ market }: { market: string }) {
   }
 
   if (!pool) return <div className="amm-panel"><p role="status">{message}</p></div>;
-  const trading = pool.status === "open";
+  const trading = pool.status === "open" && Number(pool.closesAt) * 1_000 > Date.now();
   const creatorCanClaim = wallet === pool.creator && pool.status === "resolved" && !pool.settlementClaimed && BigInt(pool.creatorClaimable) > BigInt(0);
   const yesHeld = BigInt(position?.yes.amountBaseUnits ?? "0");
   const noHeld = BigInt(position?.no.amountBaseUnits ?? "0");
   const walletClaimable = pool.outcome === "yes" ? yesHeld : pool.outcome === "no" ? noHeld : pool.outcome === "invalid" ? (yesHeld + noHeld) / BigInt(2) : BigInt(0);
+  const yesCanClaim = pool.status === "resolved" && yesHeld > BigInt(0) && (pool.outcome === "yes" || pool.outcome === "invalid");
+  const noCanClaim = pool.status === "resolved" && noHeld > BigInt(0) && (pool.outcome === "no" || pool.outcome === "invalid");
 
   return (
     <div className="amm-panel">
@@ -118,7 +127,9 @@ export function AmmTradePanel({ market }: { market: string }) {
         {quote ? <div className="trade-summary"><span>Share cost <strong>{display(quote.netInput.toString(), pool.decimals)} COOK</strong></span><span>Creator fee <strong>{display(quote.fee.toString(), pool.decimals)} COOK</strong></span><span>Total payment <strong>{display(quote.grossInput.toString(), pool.decimals)} COOK</strong></span><span>If {side.toUpperCase()} wins <strong>{amount} COOK</strong></span></div> : amount ? <p className="form-error">That whole-share amount exceeds this trade’s current limit.</p> : null}
         <button className="primary-action amm-buy" type="button" disabled={busy || !quote} onClick={() => void execute("buy")}>{busy ? "Checking…" : `Buy ${amount || "0"} ${side.toUpperCase()}`}</button>
         <p className="amm-note">One winning share claims 1 COOK. The displayed total includes the 1% creator fee. New-market fees remain locked until settlement.</p>
-      </> : <p className="amm-note">Trading is closed. Final outcome: <strong>{pool.outcome}</strong>.</p>}
+      </> : pool.status === "resolved" ? <p className="amm-note">Trading is closed. Final outcome: <strong>{pool.outcome}</strong>. {pool.outcome === "invalid" ? "Each remaining YES or NO share refunds 0.5 COOK." : "Each winning share claims 1 COOK."}</p> : <p className="amm-note">Trading is closed. Resolution is in progress; funds remain safely locked until the result is final.</p>}
+      {yesCanClaim ? <button className="primary-action" type="button" disabled={busy} onClick={() => void execute("claimYes")}>Claim {display((pool.outcome === "invalid" ? yesHeld / BigInt(2) : yesHeld).toString(), pool.decimals)} COOK from YES</button> : null}
+      {noCanClaim ? <button className="primary-action" type="button" disabled={busy} onClick={() => void execute("claimNo")}>Claim {display((pool.outcome === "invalid" ? noHeld / BigInt(2) : noHeld).toString(), pool.decimals)} COOK from NO</button> : null}
       {creatorCanClaim ? <button className="primary-action" type="button" disabled={busy} onClick={() => void execute("claimCreator")}>Claim {display(pool.creatorClaimable, pool.decimals)} COOK creator settlement</button> : null}
       <div className="amm-stats"><span>Pool liquidity <strong>{display(pool.liquidity, pool.decimals)} COOK</strong></span><span>Creator fees earned <strong>{display(pool.totalCreatorFees, pool.decimals)} COOK</strong></span></div>
       {message ? <p className="amm-message" role="status">{message}</p> : null}

@@ -9,6 +9,7 @@ import { AmmTradePanel } from "@/components/amm-trade-panel";
 import { verifyPublishedMarketTerms, type MarketTermsRecord } from "@/lib/market-terms-record";
 import { readPublishedMarketTerms } from "@/lib/published-market-terms";
 import { PriceEvidenceReview } from "@/components/price-evidence-review";
+import { formatUtcTimestamp, marketLifecycle } from "@/lib/market-lifecycle";
 
 export async function OnchainMarketDetail({ address }: { address: string }) {
   try {
@@ -19,7 +20,7 @@ export async function OnchainMarketDetail({ address }: { address: string }) {
     if (!account) throw new Error("Market account was not found.");
     const market = decodeMarketAccount(publicKey, account);
     if (market.collateralMint !== protocol.collateralMint) throw new Error("Market collateral does not match protocol config.");
-    const tradingOpen = market.status === "open" && Number(market.closesAt) * 1_000 > Date.now();
+    const lifecycle = marketLifecycle(market);
     let terms: MarketTermsRecord | undefined;
     let termsError: string | undefined;
     try {
@@ -29,7 +30,8 @@ export async function OnchainMarketDetail({ address }: { address: string }) {
     }
     return (
       <section className="resolution-card">
-        <p className="eyebrow">VERIFIED COOKIE CHAIN MARKET · {(tradingOpen ? market.status : market.status === "open" ? "closed" : market.status).toUpperCase()}</p>
+        <p className="eyebrow">VERIFIED COOKIE CHAIN MARKET</p>
+        <div className={`market-stage stage-${lifecycle.key}`}><strong>{lifecycle.label}</strong><span>{lifecycle.description}</span></div>
         <h2>{terms?.question ?? "On-chain market account"}</h2>
         {terms ? <><p>Published question and rules match this market’s immutable on-chain hashes.</p><h3>Resolution source</h3><p>{terms.resolutionSource}</p><h3>Settlement rules</h3><p style={{ whiteSpace: "pre-wrap" }}>{terms.resolutionRules}</p></> : termsError ? <p role="alert">{termsError} Deposits are disabled. Withdrawals and redemption remain available for simulation.</p> : <p>No readable terms have been published in the registry. Supply the exact question and settlement rules below to verify them before preparing a deposit.</p>}
         <dl>
@@ -39,12 +41,12 @@ export async function OnchainMarketDetail({ address }: { address: string }) {
           <div><dt>Collateral mint</dt><dd>{market.collateralMint}</dd></div>
           <div><dt>Question hash</dt><dd>{market.questionHash}</dd></div>
           <div><dt>Rules hash</dt><dd>{market.rulesHash}</dd></div>
-          <div><dt>Trading closes (Unix)</dt><dd>{market.closesAt}</dd></div>
-          <div><dt>Resolution after (Unix)</dt><dd>{market.resolveAfter}</dd></div>
+          <div><dt>Trading closes</dt><dd>{formatUtcTimestamp(market.closesAt)}</dd></div>
+          <div><dt>Resolution begins</dt><dd>{formatUtcTimestamp(market.resolveAfter)}</dd></div>
           <div><dt>Final outcome</dt><dd>{market.outcome}</dd></div>
           <div><dt>Outstanding collateral</dt><dd>{formatTokenAmount(BigInt(market.outstandingSets), protocol.collateralDecimals)} token units</dd></div>
         </dl>
-        {!tradingOpen && market.status === "open" ? <p className="form-error" role="alert">Trading has closed. No new deposits or orders can be submitted for this market.</p> : null}
+        {!lifecycle.tradingOpen && market.status === "open" ? <p className="form-error" role="alert">Trading has closed at the displayed UTC deadline. No new purchase can be submitted.</p> : null}
         {!termsError ? <AmmTradePanel key={market.address} market={market.address} /> : null}
         <PriceEvidenceReview key={`evidence-${market.address}`} market={market.address} settlesAt={new Date(Number(market.closesAt) * 1000).toISOString()} />
       </section>
