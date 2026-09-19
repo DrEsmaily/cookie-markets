@@ -372,10 +372,10 @@ async function testAmmInitialization(config, collateralMint) {
   const { pool, poolYes, poolNo } = client.deriveAmmAddresses(market);
   assert.ok(await connection.getAccountInfo(pool));
   assert.equal((await connection.getTokenAccountBalance(vault)).value.amount, liquidity.toString());
-  assert.equal((await connection.getTokenAccountBalance(poolYes)).value.amount, "400000000000");
-  assert.equal((await connection.getTokenAccountBalance(poolNo)).value.amount, "600000000000");
-  assert.equal((await connection.getTokenAccountBalance(creatorYes)).value.amount, "600000000000");
-  assert.equal((await connection.getTokenAccountBalance(creatorNo)).value.amount, "400000000000");
+  assert.equal((await connection.getTokenAccountBalance(poolYes)).value.amount, "666666666666");
+  assert.equal((await connection.getTokenAccountBalance(poolNo)).value.amount, liquidity.toString());
+  assert.equal((await connection.getTokenAccountBalance(creatorYes)).value.amount, "333333333334");
+  assert.equal((await connection.getTokenAccountBalance(creatorNo)).value.amount, "0");
   console.log("AMM initialization passed on validator: minimum real liquidity, pool creation, custody, initial odds, and creator inventory.");
 }
 
