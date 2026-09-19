@@ -81,7 +81,7 @@ jobs:
         run: |
           set -euo pipefail
           solana-test-validator --reset --ledger "$RUNNER_TEMP/test-ledger" \
-            --bpf-program US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx target/deploy/cookie_markets.so \
+            --bpf-program BNqof3tMVwNd7rthycJTtXkvbGtopihvL9gpeoSk8WaR target/deploy/cookie_markets.so \
             > "$RUNNER_TEMP/validator.log" 2>&1 &
           VALIDATOR_PID=$!
           trap 'kill "$VALIDATOR_PID" || true' EXIT
