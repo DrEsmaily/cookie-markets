@@ -38,7 +38,10 @@ pub fn initial_reserves(liquidity: u64, yes_probability_bps: u16) -> Result<(u64
     let largest = yes_weight.max(no_weight);
     let yes_reserve = multiply_divide_floor(liquidity, yes_weight, largest)?;
     let no_reserve = multiply_divide_floor(liquidity, no_weight, largest)?;
-    require!(yes_reserve > 0 && no_reserve > 0, CookieMarketsError::PoolTooSmall);
+    require!(
+        yes_reserve > 0 && no_reserve > 0,
+        CookieMarketsError::PoolTooSmall
+    );
     Ok((yes_reserve, no_reserve))
 }
 
@@ -67,8 +70,14 @@ pub fn quote_buy(
     no_reserve: u64,
 ) -> Result<AmmQuote> {
     require!(gross_input > 0, CookieMarketsError::ZeroAmount);
-    require!(gross_input <= maximum_trade(liquidity)?, CookieMarketsError::TradeExceedsPoolCap);
-    require!(yes_reserve > 0 && no_reserve > 0, CookieMarketsError::PoolTooSmall);
+    require!(
+        gross_input <= maximum_trade(liquidity)?,
+        CookieMarketsError::TradeExceedsPoolCap
+    );
+    require!(
+        yes_reserve > 0 && no_reserve > 0,
+        CookieMarketsError::PoolTooSmall
+    );
     let fee = multiply_divide_ceil(gross_input, AMM_FEE_BPS, BPS_DENOMINATOR)?;
     let net_input = gross_input
         .checked_sub(fee)
@@ -89,7 +98,8 @@ pub fn quote_buy(
         .checked_add(net_input)
         .ok_or(CookieMarketsError::ArithmeticOverflow)?;
     let bought_after = divide_ceil(invariant, u128::from(opposite_after))?;
-    let bought_after = u64::try_from(bought_after).map_err(|_| CookieMarketsError::ArithmeticOverflow)?;
+    let bought_after =
+        u64::try_from(bought_after).map_err(|_| CookieMarketsError::ArithmeticOverflow)?;
     let shares_out = bought_before_output
         .checked_sub(bought_after)
         .ok_or(CookieMarketsError::ArithmeticOverflow)?;
@@ -105,8 +115,19 @@ pub fn quote_buy(
     let invariant_after = u128::from(yes_reserve_after)
         .checked_mul(u128::from(no_reserve_after))
         .ok_or(CookieMarketsError::ArithmeticOverflow)?;
-    require!(invariant_after >= invariant, CookieMarketsError::PoolInvariantViolation);
-    Ok(AmmQuote { gross_input, fee, net_input, shares_out, yes_reserve_after, no_reserve_after, liquidity_after })
+    require!(
+        invariant_after >= invariant,
+        CookieMarketsError::PoolInvariantViolation
+    );
+    Ok(AmmQuote {
+        gross_input,
+        fee,
+        net_input,
+        shares_out,
+        yes_reserve_after,
+        no_reserve_after,
+        liquidity_after,
+    })
 }
 
 pub fn yes_probability_bps(yes_reserve: u64, no_reserve: u64) -> Result<u16> {
@@ -118,7 +139,11 @@ pub fn yes_probability_bps(yes_reserve: u64, no_reserve: u64) -> Result<u16> {
     u16::try_from(probability).map_err(|_| error!(CookieMarketsError::ArithmeticOverflow))
 }
 
-pub fn creator_pool_claim(outcome: MarketOutcome, yes_reserve: u64, no_reserve: u64) -> Result<u64> {
+pub fn creator_pool_claim(
+    outcome: MarketOutcome,
+    yes_reserve: u64,
+    no_reserve: u64,
+) -> Result<u64> {
     match outcome {
         MarketOutcome::Yes => Ok(yes_reserve),
         MarketOutcome::No => Ok(no_reserve),
@@ -162,8 +187,14 @@ mod tests {
 
     #[test]
     fn initial_reserves_match_requested_probabilities() {
-        assert_eq!(initial_reserves(1_000_000, 5_000).unwrap(), (1_000_000, 1_000_000));
-        assert_eq!(initial_reserves(1_000_000, 7_000).unwrap(), (428_571, 1_000_000));
+        assert_eq!(
+            initial_reserves(1_000_000, 5_000).unwrap(),
+            (1_000_000, 1_000_000)
+        );
+        assert_eq!(
+            initial_reserves(1_000_000, 7_000).unwrap(),
+            (428_571, 1_000_000)
+        );
         let (yes, no) = initial_reserves(1_000_000, 3_000).unwrap();
         assert!(yes_probability_bps(yes, no).unwrap().abs_diff(3_000) <= 1);
         assert!(initial_reserves(1_000_000, 0).is_err());
@@ -177,7 +208,10 @@ mod tests {
         assert_eq!(quote.net_input, 9_900);
         assert!(quote.shares_out > quote.net_input);
         assert_eq!(quote.liquidity_after, 1_009_900);
-        assert!(u128::from(quote.yes_reserve_after) * u128::from(quote.no_reserve_after) >= 1_000_000_000_000);
+        assert!(
+            u128::from(quote.yes_reserve_after) * u128::from(quote.no_reserve_after)
+                >= 1_000_000_000_000
+        );
         assert!(quote_buy(true, 10_001, 1_000_000, 1_000_000, 1_000_000).is_err());
     }
 
@@ -202,16 +236,35 @@ mod tests {
         let first = quote_buy(true, first_cap, 1_000_000, 1_000_000, 1_000_000).unwrap();
         let second_cap = maximum_trade(first.liquidity_after).unwrap();
         assert!(second_cap >= first_cap);
-        let second = quote_buy(true, second_cap, first.liquidity_after, first.yes_reserve_after, first.no_reserve_after).unwrap();
+        let second = quote_buy(
+            true,
+            second_cap,
+            first.liquidity_after,
+            first.yes_reserve_after,
+            first.no_reserve_after,
+        )
+        .unwrap();
         assert!(second.shares_out > 0);
-        assert_eq!(minimum_shares_with_one_percent_slippage(first.shares_out).unwrap(), first.shares_out * 99 / 100);
+        assert_eq!(
+            minimum_shares_with_one_percent_slippage(first.shares_out).unwrap(),
+            first.shares_out * 99 / 100
+        );
     }
 
     #[test]
     fn creator_claim_depends_on_remaining_winning_inventory() {
-        assert_eq!(creator_pool_claim(MarketOutcome::Yes, 400, 900).unwrap(), 400);
-        assert_eq!(creator_pool_claim(MarketOutcome::No, 400, 900).unwrap(), 900);
-        assert_eq!(creator_pool_claim(MarketOutcome::Invalid, 400, 900).unwrap(), 650);
+        assert_eq!(
+            creator_pool_claim(MarketOutcome::Yes, 400, 900).unwrap(),
+            400
+        );
+        assert_eq!(
+            creator_pool_claim(MarketOutcome::No, 400, 900).unwrap(),
+            900
+        );
+        assert_eq!(
+            creator_pool_claim(MarketOutcome::Invalid, 400, 900).unwrap(),
+            650
+        );
         assert!(creator_pool_claim(MarketOutcome::Unresolved, 400, 900).is_err());
     }
 
@@ -224,10 +277,16 @@ mod tests {
             assert_eq!(quote.fee + quote.net_input, quote.gross_input);
             assert_eq!(quote.liquidity_after, 1_000_000 + quote.net_input);
             if buy_yes {
-                assert_eq!(quote.yes_reserve_after + quote.shares_out, yes_before + quote.net_input);
+                assert_eq!(
+                    quote.yes_reserve_after + quote.shares_out,
+                    yes_before + quote.net_input
+                );
                 assert_eq!(quote.no_reserve_after, no_before + quote.net_input);
             } else {
-                assert_eq!(quote.no_reserve_after + quote.shares_out, no_before + quote.net_input);
+                assert_eq!(
+                    quote.no_reserve_after + quote.shares_out,
+                    no_before + quote.net_input
+                );
                 assert_eq!(quote.yes_reserve_after, yes_before + quote.net_input);
             }
         }

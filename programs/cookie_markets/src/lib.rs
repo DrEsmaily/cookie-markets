@@ -64,106 +64,362 @@ pub mod cookie_markets {
         bids::execute_cancel_bid(ctx)
     }
 
-    pub fn initialize_amm(ctx: Context<InitializeAmm>, liquidity: u64, yes_probability_bps: u16) -> Result<()> {
-        require!(ctx.accounts.market.status == MarketStatus::Open, CookieMarketsError::InvalidMarketState);
-        require!(Clock::get()?.unix_timestamp < ctx.accounts.market.closes_at, CookieMarketsError::MarketAlreadyClosed);
-        require!(liquidity >= minimum_initial_liquidity(ctx.accounts.collateral_mint.decimals)?, CookieMarketsError::InitialLiquidityTooSmall);
+    pub fn initialize_amm(
+        ctx: Context<InitializeAmm>,
+        liquidity: u64,
+        yes_probability_bps: u16,
+    ) -> Result<()> {
+        require!(
+            ctx.accounts.market.status == MarketStatus::Open,
+            CookieMarketsError::InvalidMarketState
+        );
+        require!(
+            Clock::get()?.unix_timestamp < ctx.accounts.market.closes_at,
+            CookieMarketsError::MarketAlreadyClosed
+        );
+        require!(
+            liquidity >= minimum_initial_liquidity(ctx.accounts.collateral_mint.decimals)?,
+            CookieMarketsError::InitialLiquidityTooSmall
+        );
         let (yes_reserve, no_reserve) = initial_reserves(liquidity, yes_probability_bps)?;
-        token::transfer_checked(CpiContext::new(ctx.accounts.token_program.key(), TransferChecked {
-            from: ctx.accounts.creator_collateral.to_account_info(), mint: ctx.accounts.collateral_mint.to_account_info(),
-            to: ctx.accounts.vault.to_account_info(), authority: ctx.accounts.creator.to_account_info(),
-        }), liquidity, ctx.accounts.collateral_mint.decimals)?;
+        token::transfer_checked(
+            CpiContext::new(
+                ctx.accounts.token_program.key(),
+                TransferChecked {
+                    from: ctx.accounts.creator_collateral.to_account_info(),
+                    mint: ctx.accounts.collateral_mint.to_account_info(),
+                    to: ctx.accounts.vault.to_account_info(),
+                    authority: ctx.accounts.creator.to_account_info(),
+                },
+            ),
+            liquidity,
+            ctx.accounts.collateral_mint.decimals,
+        )?;
         let market_key = ctx.accounts.market.key();
         let market = &ctx.accounts.market;
         let nonce_bytes = market.nonce.to_le_bytes();
-        let market_seeds: &[&[u8]] = &[MARKET_SEED, market.creator.as_ref(), &nonce_bytes, &[market.bump]];
-        for (mint, destination) in [(&ctx.accounts.yes_mint, &ctx.accounts.pool_yes), (&ctx.accounts.no_mint, &ctx.accounts.pool_no)] {
-            token::mint_to(CpiContext::new_with_signer(ctx.accounts.token_program.key(), MintTo {
-                mint: mint.to_account_info(), to: destination.to_account_info(), authority: market.to_account_info(),
-            }, &[market_seeds]), liquidity)?;
+        let market_seeds: &[&[u8]] = &[
+            MARKET_SEED,
+            market.creator.as_ref(),
+            &nonce_bytes,
+            &[market.bump],
+        ];
+        for (mint, destination) in [
+            (&ctx.accounts.yes_mint, &ctx.accounts.pool_yes),
+            (&ctx.accounts.no_mint, &ctx.accounts.pool_no),
+        ] {
+            token::mint_to(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.key(),
+                    MintTo {
+                        mint: mint.to_account_info(),
+                        to: destination.to_account_info(),
+                        authority: market.to_account_info(),
+                    },
+                    &[market_seeds],
+                ),
+                liquidity,
+            )?;
         }
         let pool = &mut ctx.accounts.pool;
-        pool.market = market.key(); pool.creator = ctx.accounts.creator.key(); pool.liquidity = liquidity;
-        pool.yes_reserve = liquidity; pool.no_reserve = liquidity; pool.total_creator_fees = 0; pool.settlement_claimed = false; pool.bump = ctx.bumps.pool;
+        pool.market = market.key();
+        pool.creator = ctx.accounts.creator.key();
+        pool.liquidity = liquidity;
+        pool.yes_reserve = liquidity;
+        pool.no_reserve = liquidity;
+        pool.total_creator_fees = 0;
+        pool.settlement_claimed = false;
+        pool.bump = ctx.bumps.pool;
         let pool_seeds: &[&[u8]] = &[POOL_SEED, pool.market.as_ref(), &[pool.bump]];
         for (from, to, amount) in [
-            (&ctx.accounts.pool_yes, &ctx.accounts.creator_yes, liquidity - yes_reserve),
-            (&ctx.accounts.pool_no, &ctx.accounts.creator_no, liquidity - no_reserve),
+            (
+                &ctx.accounts.pool_yes,
+                &ctx.accounts.creator_yes,
+                liquidity - yes_reserve,
+            ),
+            (
+                &ctx.accounts.pool_no,
+                &ctx.accounts.creator_no,
+                liquidity - no_reserve,
+            ),
         ] {
-            if amount > 0 { token::transfer_checked(CpiContext::new_with_signer(ctx.accounts.token_program.key(), TransferChecked {
-                from: from.to_account_info(), mint: if from.mint == ctx.accounts.yes_mint.key() { ctx.accounts.yes_mint.to_account_info() } else { ctx.accounts.no_mint.to_account_info() },
-                to: to.to_account_info(), authority: pool.to_account_info(),
-            }, &[pool_seeds]), amount, ctx.accounts.collateral_mint.decimals)?; }
+            if amount > 0 {
+                token::transfer_checked(
+                    CpiContext::new_with_signer(
+                        ctx.accounts.token_program.key(),
+                        TransferChecked {
+                            from: from.to_account_info(),
+                            mint: if from.mint == ctx.accounts.yes_mint.key() {
+                                ctx.accounts.yes_mint.to_account_info()
+                            } else {
+                                ctx.accounts.no_mint.to_account_info()
+                            },
+                            to: to.to_account_info(),
+                            authority: pool.to_account_info(),
+                        },
+                        &[pool_seeds],
+                    ),
+                    amount,
+                    ctx.accounts.collateral_mint.decimals,
+                )?;
+            }
         }
-        pool.yes_reserve = yes_reserve; pool.no_reserve = no_reserve;
-        ctx.accounts.market.outstanding_sets = ctx.accounts.market.outstanding_sets.checked_add(liquidity).ok_or(CookieMarketsError::ArithmeticOverflow)?;
-        emit!(AmmInitialized { market: market_key, liquidity, yes_probability_bps });
+        pool.yes_reserve = yes_reserve;
+        pool.no_reserve = no_reserve;
+        ctx.accounts.market.outstanding_sets = ctx
+            .accounts
+            .market
+            .outstanding_sets
+            .checked_add(liquidity)
+            .ok_or(CookieMarketsError::ArithmeticOverflow)?;
+        emit!(AmmInitialized {
+            market: market_key,
+            liquidity,
+            yes_probability_bps
+        });
         Ok(())
     }
 
-    pub fn buy_from_amm(ctx: Context<BuyFromAmm>, side: PositionSide, gross_input: u64, minimum_shares_out: u64) -> Result<()> {
-        require!(ctx.accounts.market.status == MarketStatus::Open, CookieMarketsError::InvalidMarketState);
-        require!(Clock::get()?.unix_timestamp < ctx.accounts.market.closes_at, CookieMarketsError::MarketAlreadyClosed);
-        let quote = quote_buy(side == PositionSide::Yes, gross_input, ctx.accounts.pool.liquidity, ctx.accounts.pool.yes_reserve, ctx.accounts.pool.no_reserve)?;
-        require!(minimum_shares_out >= minimum_shares_with_one_percent_slippage(quote.shares_out)?, CookieMarketsError::SlippageTooHigh);
-        require!(quote.shares_out >= minimum_shares_out, CookieMarketsError::SlippageExceeded);
-        token::transfer_checked(CpiContext::new(ctx.accounts.token_program.key(), TransferChecked {
-            from: ctx.accounts.buyer_collateral.to_account_info(), mint: ctx.accounts.collateral_mint.to_account_info(),
-            to: ctx.accounts.creator_collateral.to_account_info(), authority: ctx.accounts.buyer.to_account_info(),
-        }), quote.fee, ctx.accounts.collateral_mint.decimals)?;
-        token::transfer_checked(CpiContext::new(ctx.accounts.token_program.key(), TransferChecked {
-            from: ctx.accounts.buyer_collateral.to_account_info(), mint: ctx.accounts.collateral_mint.to_account_info(),
-            to: ctx.accounts.vault.to_account_info(), authority: ctx.accounts.buyer.to_account_info(),
-        }), quote.net_input, ctx.accounts.collateral_mint.decimals)?;
+    pub fn buy_from_amm(
+        ctx: Context<BuyFromAmm>,
+        side: PositionSide,
+        gross_input: u64,
+        minimum_shares_out: u64,
+    ) -> Result<()> {
+        require!(
+            ctx.accounts.market.status == MarketStatus::Open,
+            CookieMarketsError::InvalidMarketState
+        );
+        require!(
+            Clock::get()?.unix_timestamp < ctx.accounts.market.closes_at,
+            CookieMarketsError::MarketAlreadyClosed
+        );
+        let quote = quote_buy(
+            side == PositionSide::Yes,
+            gross_input,
+            ctx.accounts.pool.liquidity,
+            ctx.accounts.pool.yes_reserve,
+            ctx.accounts.pool.no_reserve,
+        )?;
+        require!(
+            minimum_shares_out >= minimum_shares_with_one_percent_slippage(quote.shares_out)?,
+            CookieMarketsError::SlippageTooHigh
+        );
+        require!(
+            quote.shares_out >= minimum_shares_out,
+            CookieMarketsError::SlippageExceeded
+        );
+        token::transfer_checked(
+            CpiContext::new(
+                ctx.accounts.token_program.key(),
+                TransferChecked {
+                    from: ctx.accounts.buyer_collateral.to_account_info(),
+                    mint: ctx.accounts.collateral_mint.to_account_info(),
+                    to: ctx.accounts.creator_collateral.to_account_info(),
+                    authority: ctx.accounts.buyer.to_account_info(),
+                },
+            ),
+            quote.fee,
+            ctx.accounts.collateral_mint.decimals,
+        )?;
+        token::transfer_checked(
+            CpiContext::new(
+                ctx.accounts.token_program.key(),
+                TransferChecked {
+                    from: ctx.accounts.buyer_collateral.to_account_info(),
+                    mint: ctx.accounts.collateral_mint.to_account_info(),
+                    to: ctx.accounts.vault.to_account_info(),
+                    authority: ctx.accounts.buyer.to_account_info(),
+                },
+            ),
+            quote.net_input,
+            ctx.accounts.collateral_mint.decimals,
+        )?;
         let market_key = ctx.accounts.market.key();
         let market = &ctx.accounts.market;
         let nonce_bytes = market.nonce.to_le_bytes();
-        let market_seeds: &[&[u8]] = &[MARKET_SEED, market.creator.as_ref(), &nonce_bytes, &[market.bump]];
-        for (mint, destination) in [(&ctx.accounts.yes_mint, &ctx.accounts.pool_yes), (&ctx.accounts.no_mint, &ctx.accounts.pool_no)] {
-            token::mint_to(CpiContext::new_with_signer(ctx.accounts.token_program.key(), MintTo {
-                mint: mint.to_account_info(), to: destination.to_account_info(), authority: market.to_account_info(),
-            }, &[market_seeds]), quote.net_input)?;
+        let market_seeds: &[&[u8]] = &[
+            MARKET_SEED,
+            market.creator.as_ref(),
+            &nonce_bytes,
+            &[market.bump],
+        ];
+        for (mint, destination) in [
+            (&ctx.accounts.yes_mint, &ctx.accounts.pool_yes),
+            (&ctx.accounts.no_mint, &ctx.accounts.pool_no),
+        ] {
+            token::mint_to(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.key(),
+                    MintTo {
+                        mint: mint.to_account_info(),
+                        to: destination.to_account_info(),
+                        authority: market.to_account_info(),
+                    },
+                    &[market_seeds],
+                ),
+                quote.net_input,
+            )?;
         }
         let pool = &ctx.accounts.pool;
         let pool_seeds: &[&[u8]] = &[POOL_SEED, pool.market.as_ref(), &[pool.bump]];
         let (mint, source, destination) = match side {
-            PositionSide::Yes => (&ctx.accounts.yes_mint, &ctx.accounts.pool_yes, &ctx.accounts.buyer_yes),
-            PositionSide::No => (&ctx.accounts.no_mint, &ctx.accounts.pool_no, &ctx.accounts.buyer_no),
+            PositionSide::Yes => (
+                &ctx.accounts.yes_mint,
+                &ctx.accounts.pool_yes,
+                &ctx.accounts.buyer_yes,
+            ),
+            PositionSide::No => (
+                &ctx.accounts.no_mint,
+                &ctx.accounts.pool_no,
+                &ctx.accounts.buyer_no,
+            ),
         };
-        token::transfer_checked(CpiContext::new_with_signer(ctx.accounts.token_program.key(), TransferChecked {
-            from: source.to_account_info(), mint: mint.to_account_info(), to: destination.to_account_info(), authority: pool.to_account_info(),
-        }, &[pool_seeds]), quote.shares_out, ctx.accounts.collateral_mint.decimals)?;
+        token::transfer_checked(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.key(),
+                TransferChecked {
+                    from: source.to_account_info(),
+                    mint: mint.to_account_info(),
+                    to: destination.to_account_info(),
+                    authority: pool.to_account_info(),
+                },
+                &[pool_seeds],
+            ),
+            quote.shares_out,
+            ctx.accounts.collateral_mint.decimals,
+        )?;
         let pool = &mut ctx.accounts.pool;
-        pool.liquidity = quote.liquidity_after; pool.yes_reserve = quote.yes_reserve_after; pool.no_reserve = quote.no_reserve_after;
-        pool.total_creator_fees = pool.total_creator_fees.checked_add(quote.fee).ok_or(CookieMarketsError::ArithmeticOverflow)?;
-        ctx.accounts.market.outstanding_sets = ctx.accounts.market.outstanding_sets.checked_add(quote.net_input).ok_or(CookieMarketsError::ArithmeticOverflow)?;
-        emit!(AmmTrade { market: market_key, buyer: ctx.accounts.buyer.key(), side, gross_input, fee: quote.fee, shares_out: quote.shares_out, yes_probability_bps: yes_probability_bps(pool.yes_reserve, pool.no_reserve)? });
+        pool.liquidity = quote.liquidity_after;
+        pool.yes_reserve = quote.yes_reserve_after;
+        pool.no_reserve = quote.no_reserve_after;
+        pool.total_creator_fees = pool
+            .total_creator_fees
+            .checked_add(quote.fee)
+            .ok_or(CookieMarketsError::ArithmeticOverflow)?;
+        ctx.accounts.market.outstanding_sets = ctx
+            .accounts
+            .market
+            .outstanding_sets
+            .checked_add(quote.net_input)
+            .ok_or(CookieMarketsError::ArithmeticOverflow)?;
+        emit!(AmmTrade {
+            market: market_key,
+            buyer: ctx.accounts.buyer.key(),
+            side,
+            gross_input,
+            fee: quote.fee,
+            shares_out: quote.shares_out,
+            yes_probability_bps: yes_probability_bps(pool.yes_reserve, pool.no_reserve)?
+        });
         Ok(())
     }
 
     pub fn claim_amm_settlement(ctx: Context<ClaimAmmSettlement>) -> Result<()> {
-        require!(ctx.accounts.market.status == MarketStatus::Resolved, CookieMarketsError::InvalidMarketState);
-        require!(!ctx.accounts.pool.settlement_claimed, CookieMarketsError::PoolAlreadyClaimed);
-        let payout = creator_pool_claim(ctx.accounts.market.outcome, ctx.accounts.pool.yes_reserve, ctx.accounts.pool.no_reserve)?;
+        require!(
+            ctx.accounts.market.status == MarketStatus::Resolved,
+            CookieMarketsError::InvalidMarketState
+        );
+        require!(
+            !ctx.accounts.pool.settlement_claimed,
+            CookieMarketsError::PoolAlreadyClaimed
+        );
+        let payout = creator_pool_claim(
+            ctx.accounts.market.outcome,
+            ctx.accounts.pool.yes_reserve,
+            ctx.accounts.pool.no_reserve,
+        )?;
         let pool = &ctx.accounts.pool;
         let pool_seeds: &[&[u8]] = &[POOL_SEED, pool.market.as_ref(), &[pool.bump]];
         let burns = match ctx.accounts.market.outcome {
-            MarketOutcome::Yes => [(ctx.accounts.yes_mint.to_account_info(), ctx.accounts.pool_yes.to_account_info(), ctx.accounts.pool.yes_reserve), (ctx.accounts.no_mint.to_account_info(), ctx.accounts.pool_no.to_account_info(), 0)],
-            MarketOutcome::No => [(ctx.accounts.no_mint.to_account_info(), ctx.accounts.pool_no.to_account_info(), ctx.accounts.pool.no_reserve), (ctx.accounts.yes_mint.to_account_info(), ctx.accounts.pool_yes.to_account_info(), 0)],
-            MarketOutcome::Invalid => [(ctx.accounts.yes_mint.to_account_info(), ctx.accounts.pool_yes.to_account_info(), ctx.accounts.pool.yes_reserve), (ctx.accounts.no_mint.to_account_info(), ctx.accounts.pool_no.to_account_info(), ctx.accounts.pool.no_reserve)],
+            MarketOutcome::Yes => [
+                (
+                    ctx.accounts.yes_mint.to_account_info(),
+                    ctx.accounts.pool_yes.to_account_info(),
+                    ctx.accounts.pool.yes_reserve,
+                ),
+                (
+                    ctx.accounts.no_mint.to_account_info(),
+                    ctx.accounts.pool_no.to_account_info(),
+                    0,
+                ),
+            ],
+            MarketOutcome::No => [
+                (
+                    ctx.accounts.no_mint.to_account_info(),
+                    ctx.accounts.pool_no.to_account_info(),
+                    ctx.accounts.pool.no_reserve,
+                ),
+                (
+                    ctx.accounts.yes_mint.to_account_info(),
+                    ctx.accounts.pool_yes.to_account_info(),
+                    0,
+                ),
+            ],
+            MarketOutcome::Invalid => [
+                (
+                    ctx.accounts.yes_mint.to_account_info(),
+                    ctx.accounts.pool_yes.to_account_info(),
+                    ctx.accounts.pool.yes_reserve,
+                ),
+                (
+                    ctx.accounts.no_mint.to_account_info(),
+                    ctx.accounts.pool_no.to_account_info(),
+                    ctx.accounts.pool.no_reserve,
+                ),
+            ],
             MarketOutcome::Unresolved => return err!(CookieMarketsError::InvalidMarketState),
         };
-        for (mint, from, amount) in burns { if amount > 0 { token::burn(CpiContext::new_with_signer(ctx.accounts.token_program.key(), Burn { mint, from, authority: pool.to_account_info() }, &[pool_seeds]), amount)?; } }
+        for (mint, from, amount) in burns {
+            if amount > 0 {
+                token::burn(
+                    CpiContext::new_with_signer(
+                        ctx.accounts.token_program.key(),
+                        Burn {
+                            mint,
+                            from,
+                            authority: pool.to_account_info(),
+                        },
+                        &[pool_seeds],
+                    ),
+                    amount,
+                )?;
+            }
+        }
         let market = &ctx.accounts.market;
         let nonce_bytes = market.nonce.to_le_bytes();
-        let market_seeds: &[&[u8]] = &[MARKET_SEED, market.creator.as_ref(), &nonce_bytes, &[market.bump]];
-        token::transfer_checked(CpiContext::new_with_signer(ctx.accounts.token_program.key(), TransferChecked {
-            from: ctx.accounts.vault.to_account_info(), mint: ctx.accounts.collateral_mint.to_account_info(),
-            to: ctx.accounts.creator_collateral.to_account_info(), authority: market.to_account_info(),
-        }, &[market_seeds]), payout, ctx.accounts.collateral_mint.decimals)?;
-        ctx.accounts.market.outstanding_sets = ctx.accounts.market.outstanding_sets.checked_sub(payout).ok_or(CookieMarketsError::InsufficientOutstandingSets)?;
+        let market_seeds: &[&[u8]] = &[
+            MARKET_SEED,
+            market.creator.as_ref(),
+            &nonce_bytes,
+            &[market.bump],
+        ];
+        token::transfer_checked(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.key(),
+                TransferChecked {
+                    from: ctx.accounts.vault.to_account_info(),
+                    mint: ctx.accounts.collateral_mint.to_account_info(),
+                    to: ctx.accounts.creator_collateral.to_account_info(),
+                    authority: market.to_account_info(),
+                },
+                &[market_seeds],
+            ),
+            payout,
+            ctx.accounts.collateral_mint.decimals,
+        )?;
+        ctx.accounts.market.outstanding_sets = ctx
+            .accounts
+            .market
+            .outstanding_sets
+            .checked_sub(payout)
+            .ok_or(CookieMarketsError::InsufficientOutstandingSets)?;
         ctx.accounts.pool.settlement_claimed = true;
-        emit!(AmmSettlementClaimed { market: ctx.accounts.market.key(), creator: ctx.accounts.creator.key(), payout });
+        emit!(AmmSettlementClaimed {
+            market: ctx.accounts.market.key(),
+            creator: ctx.accounts.creator.key(),
+            payout
+        });
         Ok(())
     }
 
