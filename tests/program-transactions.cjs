@@ -353,6 +353,32 @@ async function testNativeWrapping() {
   console.log("Native wrapping passed: frontend ATA/transfer/sync instructions, exact wrapped balance, explicit unwrap, and rent return.");
 }
 
+async function testAmmInitialization(config, collateralMint) {
+  const client = require("../.test-build/cookie-markets-program.js");
+  const nonce = integer(6);
+  const market = pda("market", admin.publicKey.toBuffer(), nonce);
+  const yesMint = pda("yes_mint", market.toBuffer());
+  const noMint = pda("no_mint", market.toBuffer());
+  const vault = pda("vault", market.toBuffer());
+  const closesAt = await chainTime() + 3600;
+  await send([instruction("create_market", [meta(config), meta(market, true), meta(collateralMint), meta(yesMint, true), meta(noMint, true), meta(vault, true), meta(admin.publicKey, true, true), meta(tokenProgram), meta(SystemProgram.programId)], nonce, Buffer.alloc(32, 7), Buffer.alloc(32, 8), integer(closesAt), integer(closesAt))]);
+  await send([instruction("open_market", [meta(market, true), meta(admin.publicKey, false, true)])]);
+  const creatorCollateral = await createTokenAccount(collateralMint);
+  const creatorYes = await createTokenAccount(yesMint);
+  const creatorNo = await createTokenAccount(noMint);
+  const liquidity = 1_000_000_000_000n;
+  await send([new TransactionInstruction({ programId: tokenProgram, keys: [meta(collateralMint, true), meta(creatorCollateral, true), meta(admin.publicKey, false, true)], data: Buffer.concat([Buffer.from([7]), integer(liquidity)]) })]);
+  await send([client.buildInitializeAmmInstruction({ market, collateralMint, yesMint, noMint, vault, creator: admin.publicKey, creatorCollateral, creatorYes, creatorNo, liquidity, yesProbabilityBps: 6_000 })]);
+  const { pool, poolYes, poolNo } = client.deriveAmmAddresses(market);
+  assert.ok(await connection.getAccountInfo(pool));
+  assert.equal((await connection.getTokenAccountBalance(vault)).value.amount, liquidity.toString());
+  assert.equal((await connection.getTokenAccountBalance(poolYes)).value.amount, "400000000000");
+  assert.equal((await connection.getTokenAccountBalance(poolNo)).value.amount, "600000000000");
+  assert.equal((await connection.getTokenAccountBalance(creatorYes)).value.amount, "600000000000");
+  assert.equal((await connection.getTokenAccountBalance(creatorNo)).value.amount, "400000000000");
+  console.log("AMM initialization passed on validator: minimum real liquidity, pool creation, custody, initial odds, and creator inventory.");
+}
+
 async function main() {
   assert.equal((await connection.getAccountInfo(program)).executable, true);
   for (const signer of [admin, outsider]) {
@@ -425,6 +451,7 @@ async function main() {
   console.log("Collateral custody passed: split, partial merge, submitted rollback after the first burn, and deliberate share burns leave their matching collateral locked.");
   console.log("Local-validator transactions passed: initialization, mint/vault creation, market opening, unauthorized signer, repeated opening, premature locking.");
   await testClientPositions(config, collateral.publicKey);
+  await testAmmInitialization(config, collateral.publicKey);
   await testSettlement(config, collateral.publicKey);
   await testNativeWrapping();
 }

@@ -996,27 +996,27 @@ pub struct MergePositions<'info> {
 #[derive(Accounts)]
 pub struct InitializeAmm<'info> {
     #[account(mut, has_one = creator)]
-    pub market: Account<'info, Market>,
+    pub market: Box<Account<'info, Market>>,
     #[account(init, payer = creator, space = AmmPool::SPACE, seeds = [POOL_SEED, market.key().as_ref()], bump)]
-    pub pool: Account<'info, AmmPool>,
+    pub pool: Box<Account<'info, AmmPool>>,
     #[account(address = market.collateral_mint)]
-    pub collateral_mint: Account<'info, Mint>,
+    pub collateral_mint: Box<Account<'info, Mint>>,
     #[account(mut, address = market.yes_mint)]
-    pub yes_mint: Account<'info, Mint>,
+    pub yes_mint: Box<Account<'info, Mint>>,
     #[account(mut, address = market.no_mint)]
-    pub no_mint: Account<'info, Mint>,
+    pub no_mint: Box<Account<'info, Mint>>,
     #[account(mut, address = market.vault, token::mint = collateral_mint, token::authority = market)]
-    pub vault: Account<'info, TokenAccount>,
+    pub vault: Box<Account<'info, TokenAccount>>,
     #[account(init, payer = creator, seeds = [POOL_YES_SEED, market.key().as_ref()], bump, token::mint = yes_mint, token::authority = pool)]
-    pub pool_yes: Account<'info, TokenAccount>,
+    pub pool_yes: Box<Account<'info, TokenAccount>>,
     #[account(init, payer = creator, seeds = [POOL_NO_SEED, market.key().as_ref()], bump, token::mint = no_mint, token::authority = pool)]
-    pub pool_no: Account<'info, TokenAccount>,
+    pub pool_no: Box<Account<'info, TokenAccount>>,
     #[account(mut, token::mint = collateral_mint, token::authority = creator)]
-    pub creator_collateral: Account<'info, TokenAccount>,
+    pub creator_collateral: Box<Account<'info, TokenAccount>>,
     #[account(mut, token::mint = yes_mint, token::authority = creator)]
-    pub creator_yes: Account<'info, TokenAccount>,
+    pub creator_yes: Box<Account<'info, TokenAccount>>,
     #[account(mut, token::mint = no_mint, token::authority = creator)]
-    pub creator_no: Account<'info, TokenAccount>,
+    pub creator_no: Box<Account<'info, TokenAccount>>,
     #[account(mut)]
     pub creator: Signer<'info>,
     pub token_program: Program<'info, Token>,
@@ -1026,31 +1026,31 @@ pub struct InitializeAmm<'info> {
 #[derive(Accounts)]
 pub struct BuyFromAmm<'info> {
     #[account(mut)]
-    pub market: Account<'info, Market>,
+    pub market: Box<Account<'info, Market>>,
     #[account(mut, seeds = [POOL_SEED, market.key().as_ref()], bump = pool.bump, has_one = market, has_one = creator)]
-    pub pool: Account<'info, AmmPool>,
+    pub pool: Box<Account<'info, AmmPool>>,
     /// CHECK: Bound to the pool and creator collateral token authority.
     pub creator: UncheckedAccount<'info>,
     #[account(address = market.collateral_mint)]
-    pub collateral_mint: Account<'info, Mint>,
+    pub collateral_mint: Box<Account<'info, Mint>>,
     #[account(mut, address = market.yes_mint)]
-    pub yes_mint: Account<'info, Mint>,
+    pub yes_mint: Box<Account<'info, Mint>>,
     #[account(mut, address = market.no_mint)]
-    pub no_mint: Account<'info, Mint>,
+    pub no_mint: Box<Account<'info, Mint>>,
     #[account(mut, address = market.vault, token::mint = collateral_mint, token::authority = market)]
-    pub vault: Account<'info, TokenAccount>,
+    pub vault: Box<Account<'info, TokenAccount>>,
     #[account(mut, seeds = [POOL_YES_SEED, market.key().as_ref()], bump, token::mint = yes_mint, token::authority = pool)]
-    pub pool_yes: Account<'info, TokenAccount>,
+    pub pool_yes: Box<Account<'info, TokenAccount>>,
     #[account(mut, seeds = [POOL_NO_SEED, market.key().as_ref()], bump, token::mint = no_mint, token::authority = pool)]
-    pub pool_no: Account<'info, TokenAccount>,
+    pub pool_no: Box<Account<'info, TokenAccount>>,
     #[account(mut, token::mint = collateral_mint, token::authority = creator)]
-    pub creator_collateral: Account<'info, TokenAccount>,
+    pub creator_collateral: Box<Account<'info, TokenAccount>>,
     #[account(mut, token::mint = collateral_mint, token::authority = buyer)]
-    pub buyer_collateral: Account<'info, TokenAccount>,
+    pub buyer_collateral: Box<Account<'info, TokenAccount>>,
     #[account(mut, token::mint = yes_mint, token::authority = buyer)]
-    pub buyer_yes: Account<'info, TokenAccount>,
+    pub buyer_yes: Box<Account<'info, TokenAccount>>,
     #[account(mut, token::mint = no_mint, token::authority = buyer)]
-    pub buyer_no: Account<'info, TokenAccount>,
+    pub buyer_no: Box<Account<'info, TokenAccount>>,
     pub buyer: Signer<'info>,
     pub token_program: Program<'info, Token>,
 }
@@ -1058,23 +1058,23 @@ pub struct BuyFromAmm<'info> {
 #[derive(Accounts)]
 pub struct ClaimAmmSettlement<'info> {
     #[account(mut, has_one = creator)]
-    pub market: Account<'info, Market>,
+    pub market: Box<Account<'info, Market>>,
     #[account(mut, seeds = [POOL_SEED, market.key().as_ref()], bump = pool.bump, has_one = market, has_one = creator)]
-    pub pool: Account<'info, AmmPool>,
+    pub pool: Box<Account<'info, AmmPool>>,
     #[account(address = market.collateral_mint)]
-    pub collateral_mint: Account<'info, Mint>,
+    pub collateral_mint: Box<Account<'info, Mint>>,
     #[account(mut, address = market.yes_mint)]
-    pub yes_mint: Account<'info, Mint>,
+    pub yes_mint: Box<Account<'info, Mint>>,
     #[account(mut, address = market.no_mint)]
-    pub no_mint: Account<'info, Mint>,
+    pub no_mint: Box<Account<'info, Mint>>,
     #[account(mut, address = market.vault, token::mint = collateral_mint, token::authority = market)]
-    pub vault: Account<'info, TokenAccount>,
+    pub vault: Box<Account<'info, TokenAccount>>,
     #[account(mut, seeds = [POOL_YES_SEED, market.key().as_ref()], bump, token::mint = yes_mint, token::authority = pool)]
-    pub pool_yes: Account<'info, TokenAccount>,
+    pub pool_yes: Box<Account<'info, TokenAccount>>,
     #[account(mut, seeds = [POOL_NO_SEED, market.key().as_ref()], bump, token::mint = no_mint, token::authority = pool)]
-    pub pool_no: Account<'info, TokenAccount>,
+    pub pool_no: Box<Account<'info, TokenAccount>>,
     #[account(mut, token::mint = collateral_mint, token::authority = creator)]
-    pub creator_collateral: Account<'info, TokenAccount>,
+    pub creator_collateral: Box<Account<'info, TokenAccount>>,
     pub creator: Signer<'info>,
     pub token_program: Program<'info, Token>,
 }
