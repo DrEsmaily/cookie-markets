@@ -6,7 +6,7 @@ import {
 } from "@solana/web3.js";
 
 export const COOKIE_MARKETS_PROGRAM_ID = new PublicKey(
-  "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+  "BNqof3tMVwNd7rthycJTtXkvbGtopihvL9gpeoSk8WaR",
 );
 
 export const TOKEN_PROGRAM_ID = new PublicKey(
