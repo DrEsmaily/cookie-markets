@@ -6,7 +6,7 @@ pub const AMM_FEE_BPS: u64 = 100;
 pub const AMM_TRADE_CAP_BPS: u64 = 100;
 pub const MAX_SLIPPAGE_BPS: u64 = 100;
 pub const BPS_DENOMINATOR: u64 = 10_000;
-pub const MINIMUM_INITIAL_LIQUIDITY_TOKENS: u64 = 1_000;
+pub const MINIMUM_INITIAL_LIQUIDITY_TOKENS: u64 = 100;
 pub const DEFERRED_FEE_FLAG: u64 = 1 << 63;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -286,6 +286,12 @@ fn divide_ceil(numerator: u128, denominator: u128) -> Result<u128> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn minimum_liquidity_supports_one_percent_whole_share_trades() {
+        assert_eq!(minimum_initial_liquidity(9).unwrap(), 100_000_000_000);
+        assert_eq!(maximum_trade(minimum_initial_liquidity(9).unwrap()).unwrap(), 1_000_000_000);
+    }
 
     #[test]
     fn initial_reserves_match_requested_probabilities() {

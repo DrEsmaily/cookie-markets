@@ -24,7 +24,7 @@ export function MarketDraftForm() {
   const [priceAsset, setPriceAsset] = useState<"BTC" | "ETH">("BTC");
   const [direction, setDirection] = useState<"above" | "under">("above");
   const [targetUsd, setTargetUsd] = useState("");
-  const [initialLiquidity, setInitialLiquidity] = useState("1000");
+  const [initialLiquidity, setInitialLiquidity] = useState("100");
   const [yesProbability, setYesProbability] = useState("50");
   const [collateralMint, setCollateralMint] = useState("");
   const [collateralDecimals, setCollateralDecimals] = useState(9);
@@ -62,7 +62,7 @@ export function MarketDraftForm() {
     event.preventDefault();
     try {
       if (!targetUsd.trim()) throw new Error("Enter a target USD price.");
-      if (Number(initialLiquidity) < 1000) throw new Error("Initial liquidity must be at least 1,000 COOK.");
+      if (Number(initialLiquidity) < 100) throw new Error("Initial liquidity must be at least 100 COOK so the strict 1% trade cap still permits a whole share purchase.");
       if (!Number.isInteger(Number(yesProbability)) || Number(yesProbability) < 1 || Number(yesProbability) > 99) throw new Error("Starting YES must be between 1% and 99%.");
       if (!draft.closesAt) throw new Error("Choose a future settlement date and time.");
       const settlement = new Date(draft.closesAt);
@@ -200,7 +200,7 @@ export function MarketDraftForm() {
         <Field label="Price direction"><select value={direction} onChange={(event) => { setDirection(event.target.value as "above" | "under"); setIsReady(false); setPreview(undefined); }}><option value="above">Above</option><option value="under">Under</option></select></Field>
         <Field label="Target USD price"><input inputMode="decimal" value={targetUsd} onChange={(event) => { setTargetUsd(event.target.value); setIsReady(false); setPreview(undefined); }} placeholder="82000" /></Field>
         <Field label="At this date and time"><input type="datetime-local" value={draft.closesAt} onChange={(event) => update("closesAt", event.target.value)} /></Field>
-        <Field label="Initial liquidity (minimum 1,000 COOK)"><input inputMode="decimal" value={initialLiquidity} onChange={(event) => { setInitialLiquidity(event.target.value); setIsReady(false); setPreview(undefined); }} /></Field>
+        <Field label="Initial liquidity (minimum 100 COOK)"><input inputMode="decimal" value={initialLiquidity} onChange={(event) => { setInitialLiquidity(event.target.value); setIsReady(false); setPreview(undefined); }} /><small>At 100 COOK, the 1% per-transaction cap is 1 COOK, enough for whole-share trading.</small></Field>
         <Field label="Starting YES percentage"><input type="number" min="1" max="99" step="1" value={yesProbability} onChange={(event) => { setYesProbability(event.target.value); setIsReady(false); setPreview(undefined); }} /><small>NO starts at {100 - (Number(yesProbability) || 0)}%</small></Field>
         <p>CookieMarkets automatically creates the question and uses Coinbase Exchange’s preceding one-minute candle close for settlement.</p>
       </fieldset>
