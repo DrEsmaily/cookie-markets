@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { AccountInfo, PublicKey } from "@solana/web3.js";
 import { COOKIE_MARKETS_PROGRAM_ID, deriveAmmAddresses as deriveProgramAmmAddresses } from "./cookie-markets-program";
 
@@ -17,7 +16,7 @@ export function deriveAmmAddresses(market: PublicKey) {
 
 export function decodeAmmPool(address: PublicKey, account: Pick<AccountInfo<Buffer>, "owner" | "data">) {
   if (!account.owner.equals(COOKIE_MARKETS_PROGRAM_ID) || account.data.length !== 106) throw new Error("AMM pool account is invalid.");
-  const discriminator = createHash("sha256").update("account:AmmPool").digest().subarray(0, 8);
+  const discriminator = Buffer.from("3652b98ab3bfd3a9", "hex");
   if (!account.data.subarray(0, 8).equals(discriminator)) throw new Error("AMM pool discriminator is invalid.");
   const market = new PublicKey(account.data.subarray(8, 40));
   const expected = deriveAmmAddresses(market).pool;
