@@ -4,7 +4,7 @@ const { Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionI
 const { NATIVE_MINT, buildUnwrapNativeInstruction, deriveAssociatedTokenAddress } = require("../.test-build/token-instructions.js");
 const { buildPositionTransactionInstructions, buildWrapNativeInstructions } = require("../.test-build/position-transactions.js");
 
-const program = new PublicKey("US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx");
+const program = new PublicKey("BNqof3tMVwNd7rthycJTtXkvbGtopihvL9gpeoSk8WaR");
 const tokenProgram = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 const connection = new Connection("http://127.0.0.1:8899", "confirmed");
 const admin = Keypair.generate();

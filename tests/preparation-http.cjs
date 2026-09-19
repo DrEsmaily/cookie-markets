@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const { test } = require("node:test");
 
 const url = `${process.env.TEST_APP_URL ?? "http://127.0.0.1:3001"}/api/positions/prepare`;
-const base = { market: "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx", user: "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx", amount: "1", action: "split" };
+const base = { market: "BNqof3tMVwNd7rthycJTtXkvbGtopihvL9gpeoSk8WaR", user: "BNqof3tMVwNd7rthycJTtXkvbGtopihvL9gpeoSk8WaR", amount: "1", action: "split" };
 
 for (const [body, status] of [["{", 400], ["{}", 400], [JSON.stringify({ market: "invalid", question: "Test?", resolutionSource: "Test", resolutionRules: "Test" }), 400], ["x".repeat(8193), 413]]) {
   test(`HTTP terms publication rejects invalid request ${body.length} bytes`, async () => {
