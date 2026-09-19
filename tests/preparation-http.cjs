@@ -12,9 +12,9 @@ for (const [body, status] of [["{", 400], ["{}", 400], [JSON.stringify({ market:
   });
 }
 
-for (const change of [{ action: "unknown" }, { asset: "SOL" }, { targetUsd: "1e5" }, { settlesAt: "2030-09-30T18:00:01.000Z" }, { market: "invalid" }]) {
+for (const change of [{ action: "unknown" }, { asset: "SOL" }, { direction: "sideways" }, { targetUsd: "1e5" }, { settlesAt: "2030-09-30T18:00:01.000Z" }, { market: "invalid" }]) {
   test(`HTTP price evidence rejects invalid input ${JSON.stringify(change)}`, async () => {
-    const response = await fetch(`${process.env.TEST_APP_URL ?? "http://127.0.0.1:3001"}/api/protocol`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "collect-price-evidence", market: base.market, asset: "BTC", targetUsd: "100000", settlesAt: "2030-09-30T18:00:00.000Z", ...change }), signal: AbortSignal.timeout(10000) });
+    const response = await fetch(`${process.env.TEST_APP_URL ?? "http://127.0.0.1:3001"}/api/protocol`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "collect-price-evidence", market: base.market, asset: "BTC", direction: "above", targetUsd: "100000", settlesAt: "2030-09-30T18:00:00.000Z", ...change }), signal: AbortSignal.timeout(10000) });
     assert.equal(response.status, 400);
     assert.equal((await response.json()).serialized, undefined);
   });

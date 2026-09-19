@@ -12,3 +12,4 @@ test-ledger
 !.env.example
 *.tsbuildinfo
 .local-secrets/
+.local-data/

@@ -6,6 +6,7 @@ import { ProtocolStatus } from "@/components/protocol-status";
 import { LiveMarketList } from "@/components/live-market-list";
 import { COOKIE_CHAIN } from "@/lib/cookie-chain-config";
 import { featuredMarkets } from "@/lib/markets";
+import { ProtocolInitializer } from "@/components/protocol-initializer";
 
 export default function Home() {
   return (
@@ -27,6 +28,8 @@ export default function Home() {
           <a className="text-action" href={COOKIE_CHAIN.explorerUrl} target="_blank" rel="noreferrer">Explore Cookie Chain ↗</a>
         </div>
       </section>
+
+      <ProtocolInitializer />
 
       <div id="markets"><LiveMarketList /></div>
       <section className="market-section">

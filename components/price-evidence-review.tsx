@@ -7,6 +7,7 @@ type Evidence = { serialized: string; evidenceHash: string; providerUrl: string;
 export function PriceEvidenceReview({ market, settlesAt }: { market: string; settlesAt: string }) {
   const [asset, setAsset] = useState("BTC");
   const [targetUsd, setTargetUsd] = useState("");
+  const [direction, setDirection] = useState<"above" | "under">("above");
   const [evidence, setEvidence] = useState<Evidence>();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
@@ -14,7 +15,7 @@ export function PriceEvidenceReview({ market, settlesAt }: { market: string; set
   async function collect() {
     setPending(true); setEvidence(undefined); setError(undefined);
     try {
-      const response = await fetch("/api/protocol", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "collect-price-evidence", market, asset, targetUsd, settlesAt }), signal: AbortSignal.timeout(30_000) });
+      const response = await fetch("/api/protocol", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "collect-price-evidence", market, asset, direction, targetUsd, settlesAt }), signal: AbortSignal.timeout(30_000) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Evidence collection failed.");
       setEvidence(result);
@@ -36,6 +37,7 @@ export function PriceEvidenceReview({ market, settlesAt }: { market: string; set
     <p>Settlement deadline: {settlesAt}. Collection is available between one minute and 24 hours afterward.</p>
     <fieldset disabled={pending}>
       <label className="form-field"><span>Asset</span><select value={asset} onChange={(event) => { setAsset(event.target.value); setEvidence(undefined); }}><option value="BTC">BTC / USD</option><option value="ETH">ETH / USD</option></select></label>
+      <label className="form-field"><span>Direction</span><select value={direction} onChange={(event) => { setDirection(event.target.value as "above" | "under"); setEvidence(undefined); }}><option value="above">Above</option><option value="under">Under</option></select></label>
       <label className="form-field"><span>Exact USD threshold</span><input inputMode="decimal" value={targetUsd} onChange={(event) => { setTargetUsd(event.target.value); setEvidence(undefined); }} /></label>
       <button className="secondary-action" type="button" disabled={!targetUsd} onClick={() => void collect()}>{pending ? "Collecting evidence…" : "Collect and review evidence"}</button>
     </fieldset>

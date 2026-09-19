@@ -30,11 +30,11 @@ Most rejected-instruction cases use signed simulation; the atomic rollback test 
 - Validate final binaries, exact deployed address, upgrade authority, protocol config, and reproducible build provenance.
 - Run a controlled end-to-end deployment without real user deposits before allowing funded markets.
 
-## User decisions needed before any real deployment
+## User decisions needed before funded launch
 
 Only public addresses and approvals belong in conversation. Do not share seed phrases, wallet exports, or private keys.
 
-- Explicit deployment approval and the intended testing/live environment. Existing instructions prohibit deployment.
+- Explicit approval of protocol initialization, live fees, and the intended testing/live environment.
 - Public program address, upgrade/governance authority, admin, and resolver addresses, with the intended separation of control and multisig threshold if applicable.
 - Approved live fees, liquidity funding, and challenge duration. Ask fills collect the snapshotted configured fee; AMM fees and pool custody remain unimplemented.
 - Hosting/public metadata persistence choice, operating cost approval, and custody/risk acceptance.

@@ -1,29 +1,38 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { PublicKey } from "@solana/web3.js";
+import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import {
   buildCreateMarketInstruction,
+  buildInitializeAmmInstruction,
   buildOpenMarketInstruction,
+  COOKIE_MARKETS_PROGRAM_ID,
   deriveMarketAddresses,
 } from "@/lib/cookie-markets-program";
 import { MarketDraft, validateMarketDraft } from "@/lib/protocol";
 import { createPriceMarketTerms, coinbasePriceMarketSpec, hashMarketTerms } from "@/lib/market-terms";
 import { createMarketTermsRecord, type MarketTermsRecord } from "@/lib/market-terms-record";
+import { cookieChainConnection } from "@/lib/cookie-chain";
+import { COOKIE_CHAIN } from "@/lib/cookie-chain-config";
+import { buildCreateAssociatedTokenInstruction, buildSyncNativeInstruction, deriveAssociatedTokenAddress, NATIVE_MINT } from "@/lib/token-instructions";
+import { parseTokenAmount } from "@/lib/token-amounts";
 
 const initialDraft: MarketDraft = { question: "", resolutionSource: "", resolutionRules: "", closesAt: "", resolvesAt: "" };
 
 export function MarketDraftForm() {
   const [draft, setDraft] = useState(initialDraft);
   const [priceAsset, setPriceAsset] = useState<"BTC" | "ETH">("BTC");
+  const [direction, setDirection] = useState<"above" | "under">("above");
   const [targetUsd, setTargetUsd] = useState("");
-  const [priceSource, setPriceSource] = useState("coinbase");
+  const [initialLiquidity, setInitialLiquidity] = useState("1000");
+  const [yesProbability, setYesProbability] = useState("50");
   const [collateralMint, setCollateralMint] = useState("");
-  const [errors, setErrors] = useState<ReturnType<typeof validateMarketDraft>>({});
+  const [collateralDecimals, setCollateralDecimals] = useState(9);
   const [isReady, setIsReady] = useState(false);
   const [isPreparing, setIsPreparing] = useState(false);
   const [prepareError, setPrepareError] = useState<string>();
   const [preview, setPreview] = useState<InstructionPreview>();
+  const [submissionMessage, setSubmissionMessage] = useState<string>();
   const [collateralMessage, setCollateralMessage] = useState("Resolving approved collateral…");
 
   useEffect(() => {
@@ -32,6 +41,7 @@ export function MarketDraftForm() {
       if (cancelled) return;
       if (result.mint) {
         setCollateralMint(result.mint);
+        setCollateralDecimals(result.decimals ?? 9);
         setCollateralMessage(result.message);
       } else {
         setCollateralMessage(result.message);
@@ -50,28 +60,30 @@ export function MarketDraftForm() {
 
   function review(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const nextErrors = validateMarketDraft(draft);
-    setErrors(nextErrors);
-    setIsReady(Object.keys(nextErrors).length === 0);
-  }
-
-  function applyPriceTemplate() {
     try {
-      const settlesAt = new Date(draft.closesAt).toISOString();
-      if (Date.parse(settlesAt) <= Date.now()) throw new Error("Choose a future trading-close time.");
-      const terms = createPriceMarketTerms(priceSource === "coinbase" ? coinbasePriceMarketSpec(priceAsset, targetUsd, settlesAt) : { asset: priceAsset, targetUsd, settlesAt, source: draft.resolutionSource });
-      setDraft({ ...draft, ...terms, resolvesAt: draft.closesAt });
-      setIsReady(false);
+      if (!targetUsd.trim()) throw new Error("Enter a target USD price.");
+      if (Number(initialLiquidity) < 1000) throw new Error("Initial liquidity must be at least 1,000 COOK.");
+      if (!Number.isInteger(Number(yesProbability)) || Number(yesProbability) < 1 || Number(yesProbability) > 99) throw new Error("Starting YES must be between 1% and 99%.");
+      if (!draft.closesAt) throw new Error("Choose a future settlement date and time.");
+      const settlement = new Date(draft.closesAt);
+      if (!Number.isFinite(settlement.getTime())) throw new Error("Choose a valid settlement date and time.");
+      const settlesAt = settlement.toISOString();
+      const terms = createPriceMarketTerms(coinbasePriceMarketSpec(priceAsset, targetUsd, settlesAt, direction));
+      const nextDraft = { ...draft, ...terms, resolvesAt: new Date(settlement.getTime() + 60_000).toISOString() };
+      const nextErrors = validateMarketDraft(nextDraft);
+      setDraft(nextDraft);
+      const error = Object.values(nextErrors)[0];
+      setIsReady(!error);
       setPreview(undefined);
-      setPrepareError(undefined);
+      setPrepareError(error);
     } catch (error) {
-      setPrepareError(error instanceof Error ? error.message : "Check the price template fields.");
+      setIsReady(false);
+      setPrepareError(error instanceof Error ? error.message : "Check the asset, target, and closing time.");
     }
   }
 
   async function prepareInstructions() {
     const nextErrors = validateMarketDraft(draft);
-    setErrors(nextErrors);
     setPrepareError(undefined);
     setPreview(undefined);
     if (Object.keys(nextErrors).length > 0) return;
@@ -98,6 +110,19 @@ export function MarketDraftForm() {
       });
       const open = await buildOpenMarketInstruction(creator, marketNonce);
       const addresses = deriveMarketAddresses(creator, marketNonce);
+      const liquidity = parseTokenAmount(initialLiquidity, collateralDecimals);
+      const creatorCollateral = deriveAssociatedTokenAddress(mint, creator);
+      const creatorYes = deriveAssociatedTokenAddress(addresses.yesMint, creator);
+      const creatorNo = deriveAssociatedTokenAddress(addresses.noMint, creator);
+      const initialize = await buildInitializeAmmInstruction({ market: addresses.market, collateralMint: mint, yesMint: addresses.yesMint, noMint: addresses.noMint, vault: addresses.vault, creator, creatorCollateral, creatorYes, creatorNo, liquidity, yesProbabilityBps: Number(yesProbability) * 100 });
+      const latest = await cookieChainConnection.getLatestBlockhash("confirmed");
+      const transaction = new Transaction({ feePayer: creator, recentBlockhash: latest.blockhash }).add(create, open, buildCreateAssociatedTokenInstruction(creator, mint), buildCreateAssociatedTokenInstruction(creator, addresses.yesMint), buildCreateAssociatedTokenInstruction(creator, addresses.noMint));
+      if (mint.equals(NATIVE_MINT)) transaction.add(SystemProgram.transfer({ fromPubkey: creator, toPubkey: creatorCollateral, lamports: liquidity }), buildSyncNativeInstruction(creatorCollateral));
+      transaction.add(initialize);
+      const simulation = await cookieChainConnection.simulateTransaction(transaction);
+      if (simulation.value.err) throw new Error("Cookie Chain rejected the market simulation.");
+      const fee = await transaction.getEstimatedFee(cookieChainConnection);
+      if (fee === null) throw new Error("Could not estimate the network fee.");
 
       setPreview({
         terms: await createMarketTermsRecord(addresses.market.toBase58(), draft),
@@ -108,8 +133,12 @@ export function MarketDraftForm() {
         noMint: addresses.noMint.toBase58(),
         vault: addresses.vault.toBase58(),
         marketNonce: marketNonce.toString(),
+        liquidity: liquidity.toString(),
+        yesProbabilityBps: Number(yesProbability) * 100,
         createData: toBase64(create.data),
         openData: toBase64(open.data),
+        fee,
+        blockHeight: latest.lastValidBlockHeight,
       });
     } catch (error) {
       setPrepareError(error instanceof Error ? error.message : "Could not prepare instructions.");
@@ -118,29 +147,69 @@ export function MarketDraftForm() {
     }
   }
 
+  async function createMarket() {
+    if (!preview) return;
+    setIsPreparing(true); setPrepareError(undefined); setSubmissionMessage(undefined);
+    try {
+      const wallet = window.nightly?.solana;
+      const connect = wallet?.features?.["standard:connect"];
+      if (!wallet || !connect || wallet.genesisHash !== COOKIE_CHAIN.genesisHash) throw new Error("Connect Nightly to Cookie Chain first.");
+      const account = (await connect.connect()).accounts[0];
+      if (!account || account.address !== preview.creator) throw new Error("Reconnect the wallet that prepared this market.");
+      const creator = new PublicKey(preview.creator);
+      const terms = preview.terms;
+      const hashes = await hashMarketTerms(terms);
+      const create = await buildCreateMarketInstruction({ creator, collateralMint: new PublicKey(preview.collateralMint), marketNonce: BigInt(preview.marketNonce), questionHash: hashes.questionHash, rulesHash: hashes.rulesHash, closesAt: timestampSeconds(draft.closesAt), resolveAfter: timestampSeconds(draft.resolvesAt) });
+      const open = await buildOpenMarketInstruction(creator, BigInt(preview.marketNonce));
+      const addresses = deriveMarketAddresses(creator, BigInt(preview.marketNonce));
+      const mint = new PublicKey(preview.collateralMint);
+      const creatorCollateral = deriveAssociatedTokenAddress(mint, creator);
+      const creatorYes = deriveAssociatedTokenAddress(addresses.yesMint, creator);
+      const creatorNo = deriveAssociatedTokenAddress(addresses.noMint, creator);
+      const initialize = await buildInitializeAmmInstruction({ market: addresses.market, collateralMint: mint, yesMint: addresses.yesMint, noMint: addresses.noMint, vault: addresses.vault, creator, creatorCollateral, creatorYes, creatorNo, liquidity: BigInt(preview.liquidity), yesProbabilityBps: preview.yesProbabilityBps });
+      const latest = await cookieChainConnection.getLatestBlockhash("confirmed");
+      const transaction = new Transaction({ feePayer: creator, recentBlockhash: latest.blockhash }).add(create, open, buildCreateAssociatedTokenInstruction(creator, mint), buildCreateAssociatedTokenInstruction(creator, addresses.yesMint), buildCreateAssociatedTokenInstruction(creator, addresses.noMint));
+      if (mint.equals(NATIVE_MINT)) transaction.add(SystemProgram.transfer({ fromPubkey: creator, toPubkey: creatorCollateral, lamports: BigInt(preview.liquidity) }), buildSyncNativeInstruction(creatorCollateral));
+      transaction.add(initialize);
+      const serialized = transaction.serialize({ requireAllSignatures: false, verifySignatures: false });
+      const chain = account.chains?.find((value) => value.startsWith("solana:")) as `${string}:${string}` | undefined;
+      const sendFeature = wallet.features?.["solana:signAndSendTransaction"] ?? wallet.features?.["standard:signAndSendTransaction"];
+      const signFeature = wallet.features?.["solana:signTransaction"] ?? wallet.features?.["standard:signTransaction"];
+      if (sendFeature && chain) {
+        const result = await sendFeature.signAndSendTransaction({ account, transaction: serialized, chain, options: { commitment: "confirmed", preflightCommitment: "confirmed", maxRetries: 3 } });
+        if (!result[0]?.signature?.length) throw new Error("Nightly did not return a transaction signature.");
+      } else if (signFeature) {
+        const result = await signFeature.signTransaction({ account, transaction: serialized, chain, options: { preflightCommitment: "confirmed" } });
+        const signed = result[0]?.signedTransaction;
+        if (!signed?.length) throw new Error("Nightly did not return a signed transaction.");
+        await cookieChainConnection.sendRawTransaction(signed, { preflightCommitment: "confirmed", maxRetries: 3, skipPreflight: false });
+      } else throw new Error("Nightly transaction signing is unavailable.");
+      await waitForMarket(preview.market);
+      const publication = await fetch("/api/protocol", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ market: preview.market, question: terms.question, resolutionSource: terms.resolutionSource, resolutionRules: terms.resolutionRules }) });
+      if (!publication.ok) throw new Error(`Market is live, but public terms publication failed: ${(await publication.json() as { error?: string }).error ?? "unknown error"}. Do not recreate the market.`);
+      setSubmissionMessage(`Market ${preview.market} is live, open, and publicly documented.`);
+    } catch (error) { setPrepareError(error instanceof Error ? error.message : "Market submission failed."); }
+    finally { setIsPreparing(false); }
+  }
+
   return (
     <form className="draft-form" onSubmit={review} noValidate>
       <fieldset disabled={isPreparing}>
-        <legend>BTC / ETH price market</legend>
-        <Field label="Asset"><select value={priceAsset} onChange={(event) => setPriceAsset(event.target.value as "BTC" | "ETH")}><option value="BTC">BTC / USD</option><option value="ETH">ETH / USD</option></select></Field>
-        <Field label="Target USD price"><input inputMode="decimal" value={targetUsd} onChange={(event) => setTargetUsd(event.target.value)} placeholder="100000" /></Field>
-        <Field label="Price methodology"><select value={priceSource} onChange={(event) => setPriceSource(event.target.value)}><option value="coinbase">Coinbase Exchange preceding one-minute candle close</option><option value="custom">Custom named dataset</option></select></Field>
-        <p>Choose a future trading-close time, then apply fixed rules. Coinbase uses the last trade price in the exact preceding UTC minute, not a global spot-price average. Its deadline must be minute-aligned. Local time is converted to UTC. Resolver submission is not automatic.</p>
-        <button type="button" onClick={applyPriceTemplate}>Apply price-market rules</button>
+        <legend>Create a price market</legend>
+        <Field label="Which asset?"><select value={priceAsset} onChange={(event) => { setPriceAsset(event.target.value as "BTC" | "ETH"); setIsReady(false); setPreview(undefined); }}><option value="BTC">Bitcoin (BTC)</option><option value="ETH">Ethereum (ETH)</option></select></Field>
+        <Field label="Price direction"><select value={direction} onChange={(event) => { setDirection(event.target.value as "above" | "under"); setIsReady(false); setPreview(undefined); }}><option value="above">Above</option><option value="under">Under</option></select></Field>
+        <Field label="Target USD price"><input inputMode="decimal" value={targetUsd} onChange={(event) => { setTargetUsd(event.target.value); setIsReady(false); setPreview(undefined); }} placeholder="82000" /></Field>
+        <Field label="At this date and time"><input type="datetime-local" value={draft.closesAt} onChange={(event) => update("closesAt", event.target.value)} /></Field>
+        <Field label="Initial liquidity (minimum 1,000 COOK)"><input inputMode="decimal" value={initialLiquidity} onChange={(event) => { setInitialLiquidity(event.target.value); setIsReady(false); setPreview(undefined); }} /></Field>
+        <Field label="Starting YES percentage"><input type="number" min="1" max="99" step="1" value={yesProbability} onChange={(event) => { setYesProbability(event.target.value); setIsReady(false); setPreview(undefined); }} /><small>NO starts at {100 - (Number(yesProbability) || 0)}%</small></Field>
+        <p>CookieMarkets automatically creates the question and uses Coinbase Exchange’s preceding one-minute candle close for settlement.</p>
       </fieldset>
-      <Field label="Market question" error={errors.question}><input value={draft.question} onChange={(event) => update("question", event.target.value)} placeholder="Will…?" /></Field>
-      <Field label="Resolution source" error={errors.resolutionSource}><input value={draft.resolutionSource} onChange={(event) => update("resolutionSource", event.target.value)} placeholder="Exact oracle, explorer, publication, or public dataset" /></Field>
-      <Field label="Resolution rules" error={errors.resolutionRules}><textarea rows={6} value={draft.resolutionRules} onChange={(event) => update("resolutionRules", event.target.value)} placeholder="Resolves Yes if… Resolves No if… Resolves Invalid if…" /></Field>
-      <div className="date-fields">
-        <Field label="Trading closes" error={errors.closesAt}><input type="datetime-local" value={draft.closesAt} onChange={(event) => update("closesAt", event.target.value)} /></Field>
-        <Field label="Earliest resolution" error={errors.resolvesAt}><input type="datetime-local" value={draft.resolvesAt} onChange={(event) => update("resolvesAt", event.target.value)} /></Field>
-      </div>
-      <Field label="Collateral token mint"><input value={collateralMint} readOnly placeholder="Resolving wrapped COOK…" /><small className="field-note">{collateralMessage}</small></Field>
-      <button className="primary-action form-action" type="submit">Review draft</button>
-      {isReady ? <div className="draft-ready"><strong>Draft passes the initial checks.</strong><p>Prepare deterministic accounts and unsigned instructions after entering a verified collateral mint.</p><button type="button" className="secondary-action" disabled={isPreparing || !collateralMint.trim()} onClick={() => void prepareInstructions()}>{isPreparing ? "Preparing…" : "Prepare unsigned instructions"}</button></div> : null}
-      {prepareError ? <p className="form-error">{prepareError}</p> : null}
+      <button className="primary-action form-action" type="submit">Review market</button>
+      {prepareError ? <p className="form-error" role="alert">{prepareError}</p> : null}
+      {isReady ? <div className="draft-ready"><strong>{draft.question}</strong><p>Settlement source: Coinbase Exchange · Collateral: COOK (wrapped automatically for the on-chain program)</p><details><summary>View exact settlement rules</summary><p>{draft.resolutionRules}</p><p>{collateralMessage}</p></details><button type="button" className="secondary-action" disabled={isPreparing || !collateralMint.trim()} onClick={() => void prepareInstructions()}>{isPreparing ? "Checking on-chain costs…" : "Prepare real market"}</button></div> : null}
       {preview ? <p><a className="secondary-action" download={`market-${preview.market}.json`} href={`data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(preview.terms, null, 2))}`}>Download public market terms</a></p> : null}
-      {preview ? <div className="draft-ready"><strong>Unsigned instructions ready.</strong><p>No transaction was sent and Nightly was not asked to sign.</p><dl className="instruction-preview"><div><dt>Market</dt><dd>{preview.market}</dd></div><div><dt>YES mint</dt><dd>{preview.yesMint}</dd></div><div><dt>NO mint</dt><dd>{preview.noMint}</dd></div><div><dt>Vault</dt><dd>{preview.vault}</dd></div><div><dt>Creator</dt><dd>{preview.creator}</dd></div><div><dt>Collateral</dt><dd>{preview.collateralMint}</dd></div><div><dt>Nonce</dt><dd>{preview.marketNonce}</dd></div><div><dt>Create data</dt><dd>{preview.createData}</dd></div><div><dt>Open data</dt><dd>{preview.openData}</dd></div></dl></div> : null}
+      {preview ? <div className="draft-ready"><strong>Simulation passed. Review before approving.</strong><p>This creates and opens the market atomically. Account rent is additional to the estimated network fee.</p><dl className="instruction-preview"><div><dt>Market</dt><dd>{preview.market}</dd></div><div><dt>YES mint</dt><dd>{preview.yesMint}</dd></div><div><dt>NO mint</dt><dd>{preview.noMint}</dd></div><div><dt>Vault</dt><dd>{preview.vault}</dd></div><div><dt>Creator</dt><dd>{preview.creator}</dd></div><div><dt>Collateral</dt><dd>{preview.collateralMint}</dd></div><div><dt>Nonce</dt><dd>{preview.marketNonce}</dd></div><div><dt>Network fee</dt><dd>{preview.fee} base units</dd></div><div><dt>Block expiry</dt><dd>{preview.blockHeight}</dd></div><div><dt>Create data</dt><dd>{preview.createData}</dd></div><div><dt>Open data</dt><dd>{preview.openData}</dd></div></dl><button type="button" className="primary-action" disabled={isPreparing || Boolean(submissionMessage)} onClick={() => void createMarket()}>{isPreparing ? "Waiting for Nightly…" : "Create real market in Nightly"}</button></div> : null}
+      {submissionMessage ? <p className="draft-ready"><strong>{submissionMessage}</strong></p> : null}
     </form>
   );
 }
@@ -154,9 +223,23 @@ type InstructionPreview = {
   noMint: string;
   vault: string;
   marketNonce: string;
+  liquidity: string;
+  yesProbabilityBps: number;
   createData: string;
   openData: string;
+  fee: number;
+  blockHeight: number;
 };
+
+async function waitForMarket(address: string) {
+  const market = new PublicKey(address);
+  for (let attempt = 0; attempt < 15; attempt += 1) {
+    const account = await cookieChainConnection.getAccountInfo(market, "confirmed");
+    if (account?.owner.equals(COOKIE_MARKETS_PROGRAM_ID)) return;
+    await new Promise((resolve) => window.setTimeout(resolve, 1_000));
+  }
+  throw new Error("The transaction was sent, but market confirmation is pending. Do not submit it again.");
+}
 
 function randomUnsigned64(): bigint {
   const bytes = crypto.getRandomValues(new Uint8Array(8));
@@ -171,15 +254,15 @@ function toBase64(value: Uint8Array): string {
   return btoa(Array.from(value, (byte) => String.fromCharCode(byte)).join(""));
 }
 
-async function resolveCollateral(): Promise<{ mint?: string; message: string }> {
+async function resolveCollateral(): Promise<{ mint?: string; decimals?: number; message: string }> {
   try {
     const protocolResponse = await fetch("/api/protocol", { cache: "no-store" });
     if (!protocolResponse.ok) {
       return { message: "Protocol verification is unavailable. Collateral preparation is disabled." };
     }
-    const protocol = await protocolResponse.json() as { deployed?: boolean; collateralMint?: string };
+    const protocol = await protocolResponse.json() as { deployed?: boolean; collateralMint?: string; collateralDecimals?: number };
     if (protocol.deployed && protocol.collateralMint) {
-      return { mint: protocol.collateralMint, message: "Loaded from the deployed protocol config." };
+      return { mint: protocol.collateralMint, decimals: protocol.collateralDecimals, message: "Loaded from the deployed protocol config." };
     }
 
     const networkResponse = await fetch("/api/network", { cache: "no-store" });
@@ -189,7 +272,7 @@ async function resolveCollateral(): Promise<{ mint?: string; message: string }> 
     }
     return { mint: network.wrappedCookMint, message: "Resolved from the Cookiescan canonical asset registry." };
   } catch {
-    return { message: "Wrapped COOK could not be resolved." };
+    return { message: "COOK collateral could not be resolved." };
   }
 }
 

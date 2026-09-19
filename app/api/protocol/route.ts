@@ -20,8 +20,8 @@ export async function POST(request: Request) {
     const collecting = body.action === "collect-price-evidence";
     let priceSpec;
     if (collecting) {
-      if ((body.asset !== "BTC" && body.asset !== "ETH") || typeof body.targetUsd !== "string" || typeof body.settlesAt !== "string") return NextResponse.json({ error: "Provide BTC or ETH, a decimal USD threshold and the exact UTC settlement minute." }, { status: 400 });
-      priceSpec = coinbasePriceMarketSpec(body.asset, body.targetUsd, body.settlesAt);
+      if ((body.asset !== "BTC" && body.asset !== "ETH") || (body.direction !== "above" && body.direction !== "under") || typeof body.targetUsd !== "string" || typeof body.settlesAt !== "string") return NextResponse.json({ error: "Provide BTC or ETH, above or under, a decimal USD threshold and the exact UTC settlement minute." }, { status: 400 });
+      priceSpec = coinbasePriceMarketSpec(body.asset, body.targetUsd, body.settlesAt, body.direction);
     } else if (typeof body.question !== "string" || typeof body.resolutionSource !== "string" || typeof body.resolutionRules !== "string") return NextResponse.json({ error: "Provide a market address and its exact readable terms." }, { status: 400 });
     let address: PublicKey;
     try { address = new PublicKey(body.market); }

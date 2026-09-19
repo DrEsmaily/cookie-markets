@@ -4,10 +4,11 @@ import { FormEvent, useEffect, useState } from "react";
 import { COOKIE_CHAIN } from "@/lib/cookie-chain-config";
 import type { MarketTerms } from "@/lib/market-terms";
 import type { VerifiedAsk } from "@/lib/protocol-accounts";
+import { submitPreparedTransaction } from "@/lib/nightly-transaction";
 
 type Preparation = {
   unsignedTransaction: string; order: string; sharesBaseUnits: string; maximumDebitBaseUnits?: string; minimumProceedsBaseUnits?: string;
-  feePayer: string; feeBaseUnits: string; lastValidBlockHeight: number; note: string;
+  feePayer: string; blockhash: string; feeBaseUnits: string; lastValidBlockHeight: number; note: string;
   quote?: { collateral: string; fee: string; buyerDebit: string };
 };
 
@@ -31,6 +32,7 @@ export function OrderPreparationForm({ market, terms, tradingAllowed = true }: {
   const [preparation, setPreparation] = useState<Preparation>();
   const [error, setError] = useState<string>();
   const [isPreparing, setIsPreparing] = useState(false);
+  const [signature, setSignature] = useState<string>();
 
   useEffect(() => {
     setAsks([]); setDiscoveryLoaded(false); setDiscoveryError(undefined); setOrder(""); setPreparation(undefined);
@@ -52,7 +54,33 @@ export function OrderPreparationForm({ market, terms, tradingAllowed = true }: {
     return () => controller.abort();
   }, [market, orderType]);
 
-  function clearPreview() { setPreparation(undefined); setError(undefined); }
+  function clearPreview() { setPreparation(undefined); setError(undefined); setSignature(undefined); }
+
+  async function submit() {
+    if (!preparation) return;
+    setIsPreparing(true); setError(undefined);
+    try {
+      setSignature(await submitPreparedTransaction(preparation));
+      setPreparation(undefined);
+    } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not submit the trade."); }
+    finally { setIsPreparing(false); }
+  }
+
+  const bestYes = orderType === "ask" ? asks.find((candidate) => candidate.side === "yes" && !candidate.cancelled) : undefined;
+  const bestNo = orderType === "ask" ? asks.find((candidate) => candidate.side === "no" && !candidate.cancelled) : undefined;
+
+  function chooseOffer(offer: VerifiedAsk | undefined) {
+    if (!offer) return;
+    setAction("fill");
+    setOrder(offer.address);
+    setSide(offer.side);
+    clearPreview();
+  }
+
+  function offerLabel(label: string, offer: VerifiedAsk | undefined) {
+    if (!offer) return `${label} · no offer`;
+    return `${label} · ${(Number(offer.price) / 10_000).toFixed(1)}¢`;
+  }
 
   async function prepare(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -79,8 +107,13 @@ export function OrderPreparationForm({ market, terms, tradingAllowed = true }: {
   }
 
   return <form className="draft-form" onSubmit={prepare} onChange={clearPreview}>
-    <h2>Buy and sell orders</h2>
-    <p>Review actual escrow transactions. Execution is not enabled yet: this screen requests no signature and sends no transaction.</p>
+    <h2>Trade YES / NO</h2>
+    <p>Buy an available YES or NO offer, place your own buy or sell offer, or cancel your offer. Every completed action is submitted to Cookie Chain through Nightly.</p>
+    <div className="outcome-buttons" aria-label="Available outcome offers">
+      <button type="button" disabled={!bestYes || isPreparing} onClick={() => chooseOffer(bestYes)}>{offerLabel("Buy YES", bestYes)}</button>
+      <button type="button" disabled={!bestNo || isPreparing} onClick={() => chooseOffer(bestNo)}>{offerLabel("Buy NO", bestNo)}</button>
+    </div>
+    {!bestYes && !bestNo && discoveryLoaded && orderType === "ask" ? <p className="form-error">No shares are for sale yet. The market creator must first deposit COOK to mint a YES + NO pair, then place a sell offer below.</p> : null}
     {discoveryError ? <p role="alert">{discoveryError} You can supply an order address; the backend verifies it again.</p> : discoveryLoaded ? <p>{asks.length} verified order records loaded. Filled, cancelled, or expired records cannot be bought. This snapshot may change; preparation reads the order again.</p> : <p>Loading verified seller orders…</p>}
     <fieldset disabled={isPreparing}>
       <label className="form-field"><span>Order book side</span><select value={orderType} onChange={(event) => { setOrderType(event.target.value as "ask" | "bid"); setMaximumDebit(""); setWrapNative(false); }}><option value="ask">Seller offers (asks)</option><option value="bid">Buyer offers (bids)</option></select></label>
@@ -109,6 +142,7 @@ export function OrderPreparationForm({ market, terms, tradingAllowed = true }: {
     </fieldset>
     {preparation?.minimumProceedsBaseUnits ? <p>Minimum seller payment: {preparation.minimumProceedsBaseUnits} collateral base units. The buyer escrow pays the trading fee separately.</p> : null}
     {error ? <p className="form-error" role="alert">{error}</p> : null}
-    {preparation ? <div className="draft-ready"><strong>Contract simulation passed. Nothing was sent.</strong><p>Wallet: {preparation.feePayer} · Order: {preparation.order}</p><p>Shares: {preparation.sharesBaseUnits} base units · Network fee: {preparation.feeBaseUnits} base units · Block expiry: {preparation.lastValidBlockHeight}</p>{preparation.quote ? <p>Seller payment: {preparation.quote.collateral} · Trading fee: {preparation.quote.fee} · Total quoted debit: {preparation.quote.buyerDebit} · Maximum debit: {preparation.maximumDebitBaseUnits} collateral base units</p> : null}<p>{preparation.note}</p><details><summary>Unsigned trade transaction</summary><textarea value={preparation.unsignedTransaction} readOnly rows={6} aria-label="Unsigned trade transaction data" /></details></div> : null}
+    {preparation ? <div className="draft-ready"><strong>Simulation passed. Ready for Nightly.</strong><p>Wallet: {preparation.feePayer} · Order: {preparation.order}</p><p>Shares: {preparation.sharesBaseUnits} base units · Network fee: {preparation.feeBaseUnits} base units · Block expiry: {preparation.lastValidBlockHeight}</p>{preparation.quote ? <p>Seller payment: {preparation.quote.collateral} · Trading fee: {preparation.quote.fee} · Total quoted debit: {preparation.quote.buyerDebit} · Maximum debit: {preparation.maximumDebitBaseUnits} collateral base units</p> : null}<button type="button" className="primary-action" disabled={isPreparing} onClick={() => void submit()}>{isPreparing ? "Waiting for Nightly…" : "Approve real trade in Nightly"}</button><details><summary>Unsigned trade transaction</summary><textarea value={preparation.unsignedTransaction} readOnly rows={6} aria-label="Unsigned trade transaction data" /></details></div> : null}
+    {signature ? <p className="draft-ready"><strong>Trade confirmed on Cookie Chain.</strong> <a href={`${COOKIE_CHAIN.explorerUrl}/tx/${signature}`} target="_blank" rel="noreferrer">View transaction ↗</a></p> : null}
   </form>;
 }

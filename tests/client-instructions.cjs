@@ -36,6 +36,55 @@ function unsigned(value) {
   return bytes;
 }
 
+test("AMM builders match pool account layout and exact trade limits", async () => {
+  const market = addresses.market;
+  const amm = client.deriveAmmAddresses(market);
+  const creatorYes = new PublicKey(Buffer.alloc(32, 7));
+  const creatorNo = new PublicKey(Buffer.alloc(32, 8));
+  const creatorCollateral = new PublicKey(Buffer.alloc(32, 9));
+  const buyer = new PublicKey(Buffer.alloc(32, 10));
+  const buyerCollateral = new PublicKey(Buffer.alloc(32, 11));
+  const buyerYes = new PublicKey(Buffer.alloc(32, 12));
+  const buyerNo = new PublicKey(Buffer.alloc(32, 13));
+  const liquidity = 1_000_000_000n;
+  const probability = Buffer.alloc(2);
+  probability.writeUInt16LE(6_000);
+
+  assertInstruction(await client.buildInitializeAmmInstruction({
+    market, collateralMint, yesMint: addresses.yesMint, noMint: addresses.noMint,
+    vault: addresses.vault, creator, creatorCollateral, creatorYes, creatorNo,
+    liquidity, yesProbabilityBps: 6_000,
+  }), "initialize_amm", [
+    [market, true], [amm.pool, true], [collateralMint], [addresses.yesMint, true],
+    [addresses.noMint, true], [addresses.vault, true], [amm.poolYes, true],
+    [amm.poolNo, true], [creatorCollateral, true], [creatorYes, true],
+    [creatorNo, true], [creator, true, true], [client.TOKEN_PROGRAM_ID],
+    [SystemProgram.programId],
+  ], Buffer.concat([unsigned(liquidity), probability]));
+
+  assertInstruction(await client.buildBuyFromAmmInstruction({
+    market, creator, collateralMint, yesMint: addresses.yesMint, noMint: addresses.noMint,
+    vault: addresses.vault, creatorCollateral, buyerCollateral, buyerYes, buyerNo, buyer,
+    side: "no", grossInput: 10_000_000n, minimumSharesOut: 9_800_000n,
+  }), "buy_from_amm", [
+    [market, true], [amm.pool, true], [creator], [collateralMint],
+    [addresses.yesMint, true], [addresses.noMint, true], [addresses.vault, true],
+    [amm.poolYes, true], [amm.poolNo, true], [creatorCollateral, true],
+    [buyerCollateral, true], [buyerYes, true], [buyerNo, true], [buyer, false, true],
+    [client.TOKEN_PROGRAM_ID],
+  ], Buffer.concat([Buffer.from([1]), unsigned(10_000_000n), unsigned(9_800_000n)]));
+
+  assertInstruction(await client.buildClaimAmmSettlementInstruction({
+    market, collateralMint, yesMint: addresses.yesMint, noMint: addresses.noMint,
+    vault: addresses.vault, creatorCollateral, creator,
+  }), "claim_amm_settlement", [
+    [market, true], [amm.pool, true], [collateralMint], [addresses.yesMint, true],
+    [addresses.noMint, true], [addresses.vault, true], [amm.poolYes, true],
+    [amm.poolNo, true], [creatorCollateral, true], [creator, false, true],
+    [client.TOKEN_PROGRAM_ID],
+  ]);
+});
+
 test("bid builders match Anchor layout and reject unsafe amounts", async () => {
   const identity = { market: addresses.market, maker: creator, nonce: marketNonce, collateralMint };
   const bid = client.deriveBidAddresses(identity.market, creator, marketNonce);
@@ -438,15 +487,20 @@ test("protocol readiness fails closed on wrong RPC, absent program, or substitut
 
 test("price markets commit exact USD thresholds UTC times and timestamped evidence rules", async () => {
   const { createPriceMarketTerms, evaluatePriceMarketObservation, priceUsdUnits } = require("../.test-build/market-terms.js");
-  const spec = { asset: "BTC", targetUsd: "100000.00000000", settlesAt: "2030-09-30T18:00:00.000Z", source: "Approved BTC/USD dataset v1" };
+  const spec = { asset: "BTC", direction: "above", targetUsd: "100000.00000000", settlesAt: "2030-09-30T18:00:00.000Z", source: "Approved BTC/USD dataset v1" };
   const terms = createPriceMarketTerms(spec);
-  assert.match(terms.question, /\$100000 at 2030/);
+  assert.match(terms.question, /above \$100000 at 2030/);
   assert.match(terms.resolutionRules, /60 seconds/);
   await hashMarketTerms(terms);
   const observation = { asset: "BTC", source: spec.source, priceUsd: "100000", observedAt: spec.settlesAt };
-  assert.equal(evaluatePriceMarketObservation(spec, observation), "yes");
+  assert.equal(evaluatePriceMarketObservation(spec, observation), "no");
+  assert.equal(evaluatePriceMarketObservation(spec, { ...observation, priceUsd: "100000.00000001" }), "yes");
   assert.equal(evaluatePriceMarketObservation(spec, { ...observation, priceUsd: "99999.99999999" }), "no");
-  assert.equal(evaluatePriceMarketObservation(spec, { ...observation, observedAt: "2030-09-30T17:59:00.000Z" }), "yes");
+  assert.equal(evaluatePriceMarketObservation(spec, { ...observation, priceUsd: "100001", observedAt: "2030-09-30T17:59:00.000Z" }), "yes");
+  const under = { ...spec, direction: "under" };
+  assert.match(createPriceMarketTerms(under).question, /under \$100000 at 2030/);
+  assert.equal(evaluatePriceMarketObservation(under, observation), "no");
+  assert.equal(evaluatePriceMarketObservation(under, { ...observation, priceUsd: "99999.99999999" }), "yes");
   for (const change of [{ source: "Other feed" }, { asset: "ETH" }, { observedAt: "2030-09-30T18:00:01.000Z" }, { observedAt: "2030-09-30T17:58:59.000Z" }, { priceUsd: "100000.000000001" }]) assert.throws(() => evaluatePriceMarketObservation(spec, { ...observation, ...change }));
   for (const price of ["0", "-1", "1e5", "NaN", "01", "1.123456789", "1000000000"]) assert.throws(() => priceUsdUnits(price));
   for (const change of [{ asset: "SOL" }, { source: "" }, { source: "feed\nchanged" }, { settlesAt: "2030-02-30T18:00:00.000Z" }, { settlesAt: "2030-09-30T18:00:00+00:00" }]) assert.throws(() => createPriceMarketTerms({ ...spec, ...change }));
@@ -455,15 +509,16 @@ test("price markets commit exact USD thresholds UTC times and timestamped eviden
 
 test("settlement evidence selects latest qualifying prices and rejects ambiguous or late evidence", () => {
   const { selectPriceMarketEvidence } = require("../.test-build/market-terms.js");
-  const spec = { asset: "ETH", targetUsd: "5000", settlesAt: "2030-09-30T18:00:00.000Z", source: "Approved ETH/USD dataset v1" };
-  const latest = { asset: spec.asset, source: spec.source, priceUsd: "5000", observedAt: spec.settlesAt };
+  const spec = { asset: "ETH", direction: "above", targetUsd: "5000", settlesAt: "2030-09-30T18:00:00.000Z", source: "Approved ETH/USD dataset v1" };
+  const latest = { asset: spec.asset, source: spec.source, priceUsd: "5001", observedAt: spec.settlesAt };
   const earlier = { ...latest, priceUsd: "4999", observedAt: "2030-09-30T17:59:00.000Z" };
   const future = { ...latest, priceUsd: "4990", observedAt: "2030-09-30T18:00:01.000Z" };
   const publication = "2030-10-01T18:00:00.000Z";
   assert.deepEqual(selectPriceMarketEvidence(spec, [future, latest, earlier], publication), { outcome: "yes", observation: latest });
   assert.equal(selectPriceMarketEvidence(spec, [earlier], publication).outcome, "no");
   assert.equal(selectPriceMarketEvidence(spec, [latest, { ...latest, priceUsd: "4999" }], publication).outcome, "invalid");
-  assert.equal(selectPriceMarketEvidence(spec, [latest, { ...latest, priceUsd: "5000.00000000" }], publication).outcome, "yes");
+  assert.equal(selectPriceMarketEvidence(spec, [latest, { ...latest, priceUsd: "5001.00000000" }], publication).outcome, "yes");
+  assert.equal(selectPriceMarketEvidence({ ...spec, direction: "under" }, [{ ...latest, priceUsd: "4999" }], publication).outcome, "yes");
   assert.equal(selectPriceMarketEvidence(spec, [latest], "2030-10-01T18:00:00.001Z").outcome, "invalid");
   assert.equal(selectPriceMarketEvidence(spec, [future], publication).outcome, "invalid");
   assert.equal(selectPriceMarketEvidence(spec, [], publication).outcome, "invalid");
@@ -475,12 +530,12 @@ test("settlement evidence selects latest qualifying prices and rejects ambiguous
 test("price evidence artifacts bind original responses and decisions to immutable market terms", async () => {
   const { createPriceEvidenceRecord } = require("../.test-build/market-terms-record.js");
   const { createPriceMarketTerms } = require("../.test-build/market-terms.js");
-  const spec = { asset: "BTC", source: "Approved dataset", targetUsd: "100000", settlesAt: "2030-09-30T18:00:00.000Z" };
+  const spec = { asset: "BTC", direction: "above", source: "Approved dataset", targetUsd: "100000", settlesAt: "2030-09-30T18:00:00.000Z" };
   const hashes = await hashMarketTerms(createPriceMarketTerms(spec));
   const input = {
     market: { address: addresses.market.toBase58(), questionHash: hashHex(hashes.questionHash), rulesHash: hashHex(hashes.rulesHash) },
     spec,
-    observations: [{ asset: "BTC", source: spec.source, priceUsd: "100000", observedAt: spec.settlesAt }],
+    observations: [{ asset: "BTC", source: spec.source, priceUsd: "100001", observedAt: spec.settlesAt }],
     publishedAt: spec.settlesAt,
     originalResponse: '{"provider":"test fixture"}',
   };

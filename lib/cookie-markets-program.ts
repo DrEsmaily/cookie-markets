@@ -54,6 +54,71 @@ export function deriveConfigAddress(): PublicKey {
   )[0];
 }
 
+export function deriveAmmAddresses(market: PublicKey) {
+  return {
+    pool: PublicKey.findProgramAddressSync([textEncoder.encode("amm_pool"), market.toBytes()], COOKIE_MARKETS_PROGRAM_ID)[0],
+    poolYes: PublicKey.findProgramAddressSync([textEncoder.encode("amm_yes"), market.toBytes()], COOKIE_MARKETS_PROGRAM_ID)[0],
+    poolNo: PublicKey.findProgramAddressSync([textEncoder.encode("amm_no"), market.toBytes()], COOKIE_MARKETS_PROGRAM_ID)[0],
+  };
+}
+
+export function buildInitializeAmmInstruction(params: {
+  market: PublicKey; collateralMint: PublicKey; yesMint: PublicKey; noMint: PublicKey; vault: PublicKey;
+  creator: PublicKey; creatorCollateral: PublicKey; creatorYes: PublicKey; creatorNo: PublicKey;
+  liquidity: bigint; yesProbabilityBps: number;
+}) {
+  if (params.liquidity <= BigInt(0) || !Number.isInteger(params.yesProbabilityBps) || params.yesProbabilityBps <= 0 || params.yesProbabilityBps >= 10_000) throw new RangeError("Invalid AMM initialization values.");
+  const { pool, poolYes, poolNo } = deriveAmmAddresses(params.market);
+  return instruction("initialize_amm", concatBytes(encodeUnsigned64(params.liquidity), encodeUnsigned16(params.yesProbabilityBps)), [
+    { pubkey: params.market, isWritable: true, isSigner: false }, { pubkey: pool, isWritable: true, isSigner: false },
+    { pubkey: params.collateralMint, isWritable: false, isSigner: false }, { pubkey: params.yesMint, isWritable: true, isSigner: false }, { pubkey: params.noMint, isWritable: true, isSigner: false },
+    { pubkey: params.vault, isWritable: true, isSigner: false }, { pubkey: poolYes, isWritable: true, isSigner: false }, { pubkey: poolNo, isWritable: true, isSigner: false },
+    { pubkey: params.creatorCollateral, isWritable: true, isSigner: false }, { pubkey: params.creatorYes, isWritable: true, isSigner: false }, { pubkey: params.creatorNo, isWritable: true, isSigner: false },
+    { pubkey: params.creator, isWritable: true, isSigner: true }, { pubkey: TOKEN_PROGRAM_ID, isWritable: false, isSigner: false }, { pubkey: SystemProgram.programId, isWritable: false, isSigner: false },
+  ]);
+}
+
+export function buildBuyFromAmmInstruction(params: {
+  market: PublicKey; creator: PublicKey; collateralMint: PublicKey; yesMint: PublicKey; noMint: PublicKey; vault: PublicKey;
+  creatorCollateral: PublicKey; buyerCollateral: PublicKey; buyerYes: PublicKey; buyerNo: PublicKey; buyer: PublicKey;
+  side: PositionSide; grossInput: bigint; minimumSharesOut: bigint;
+}) {
+  if (params.grossInput <= BigInt(0) || params.minimumSharesOut <= BigInt(0)) throw new RangeError("AMM purchase values must be positive.");
+  const { pool, poolYes, poolNo } = deriveAmmAddresses(params.market);
+  return instruction("buy_from_amm", concatBytes(Uint8Array.of(params.side === "yes" ? 0 : 1), encodeUnsigned64(params.grossInput), encodeUnsigned64(params.minimumSharesOut)), [
+    { pubkey: params.market, isWritable: true, isSigner: false }, { pubkey: pool, isWritable: true, isSigner: false }, { pubkey: params.creator, isWritable: false, isSigner: false },
+    { pubkey: params.collateralMint, isWritable: false, isSigner: false }, { pubkey: params.yesMint, isWritable: true, isSigner: false }, { pubkey: params.noMint, isWritable: true, isSigner: false }, { pubkey: params.vault, isWritable: true, isSigner: false },
+    { pubkey: poolYes, isWritable: true, isSigner: false }, { pubkey: poolNo, isWritable: true, isSigner: false }, { pubkey: params.creatorCollateral, isWritable: true, isSigner: false },
+    { pubkey: params.buyerCollateral, isWritable: true, isSigner: false }, { pubkey: params.buyerYes, isWritable: true, isSigner: false }, { pubkey: params.buyerNo, isWritable: true, isSigner: false },
+    { pubkey: params.buyer, isWritable: false, isSigner: true }, { pubkey: TOKEN_PROGRAM_ID, isWritable: false, isSigner: false },
+  ]);
+}
+
+export function buildClaimAmmSettlementInstruction(params: {
+  market: PublicKey;
+  collateralMint: PublicKey;
+  yesMint: PublicKey;
+  noMint: PublicKey;
+  vault: PublicKey;
+  creatorCollateral: PublicKey;
+  creator: PublicKey;
+}) {
+  const { pool, poolYes, poolNo } = deriveAmmAddresses(params.market);
+  return instruction("claim_amm_settlement", new Uint8Array(), [
+    { pubkey: params.market, isWritable: true, isSigner: false },
+    { pubkey: pool, isWritable: true, isSigner: false },
+    { pubkey: params.collateralMint, isWritable: false, isSigner: false },
+    { pubkey: params.yesMint, isWritable: true, isSigner: false },
+    { pubkey: params.noMint, isWritable: true, isSigner: false },
+    { pubkey: params.vault, isWritable: true, isSigner: false },
+    { pubkey: poolYes, isWritable: true, isSigner: false },
+    { pubkey: poolNo, isWritable: true, isSigner: false },
+    { pubkey: params.creatorCollateral, isWritable: true, isSigner: false },
+    { pubkey: params.creator, isWritable: false, isSigner: true },
+    { pubkey: TOKEN_PROGRAM_ID, isWritable: false, isSigner: false },
+  ]);
+}
+
 export function deriveAskAddresses(market: PublicKey, maker: PublicKey, nonce: bigint) {
   const [order, bump] = PublicKey.findProgramAddressSync(
     [textEncoder.encode("ask"), market.toBytes(), maker.toBytes(), encodeUnsigned64(nonce)],

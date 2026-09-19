@@ -2,6 +2,7 @@ export type MarketTerms = { question: string; resolutionSource: string; resoluti
 
 export type PriceMarketSpec = {
   asset: "BTC" | "ETH";
+  direction?: "above" | "under";
   targetUsd: string;
   settlesAt: string;
   source: string;
@@ -11,15 +12,15 @@ export type PriceObservation = {
   asset: "BTC" | "ETH"; source: string; priceUsd: string; observedAt: string;
 };
 
-export function coinbasePriceMarketSpec(asset: "BTC" | "ETH", targetUsd: string, settlesAt: string): PriceMarketSpec {
-  const spec = { asset, targetUsd, settlesAt, source: `Coinbase Exchange ${asset}-USD 60-second candle CLOSE for [settlement-60s, settlement); observation timestamp denotes bucket end, not last-trade time` };
+export function coinbasePriceMarketSpec(asset: "BTC" | "ETH", targetUsd: string, settlesAt: string, direction: "above" | "under" = "above"): PriceMarketSpec {
+  const spec = { asset, direction, targetUsd, settlesAt, source: `Coinbase Exchange ${asset}-USD 60-second candle CLOSE for [settlement-60s, settlement); observation timestamp denotes bucket end, not last-trade time` };
   createPriceMarketTerms(spec);
   if (Date.parse(settlesAt) % 60_000 !== 0) throw new RangeError("Coinbase candle markets must settle at an exact UTC minute.");
   return spec;
 }
 
 export function parseCoinbasePriceEvidence(spec: PriceMarketSpec, originalResponse: string): PriceObservation[] {
-  const expected = coinbasePriceMarketSpec(spec.asset, spec.targetUsd, spec.settlesAt);
+  const expected = coinbasePriceMarketSpec(spec.asset, spec.targetUsd, spec.settlesAt, spec.direction);
   if (spec.source !== expected.source) throw new RangeError("Market does not use the approved Coinbase candle methodology.");
   if (new TextEncoder().encode(originalResponse).length > 65_536 || !/^[\[\],\s\d.eE+\-]+$/.test(originalResponse)) throw new RangeError("Invalid Coinbase candle response.");
   const rows: unknown = JSON.parse(originalResponse.replace(/-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g, (number) => JSON.stringify(number)));
@@ -39,7 +40,7 @@ export function parseCoinbasePriceEvidence(spec: PriceMarketSpec, originalRespon
 }
 
 export async function collectCoinbasePriceEvidence(spec: PriceMarketSpec, now = Date.now()) {
-  const expected = coinbasePriceMarketSpec(spec.asset, spec.targetUsd, spec.settlesAt);
+  const expected = coinbasePriceMarketSpec(spec.asset, spec.targetUsd, spec.settlesAt, spec.direction);
   if (spec.source !== expected.source) throw new RangeError("Market does not use the approved Coinbase candle methodology.");
   const settlement = Date.parse(spec.settlesAt);
   if (!Number.isFinite(now) || now < settlement + 60_000 || now > settlement + 86_400_000) throw new RangeError("Collect evidence between one minute and 24 hours after settlement.");
@@ -86,10 +87,13 @@ export function createPriceMarketTerms(spec: PriceMarketSpec): MarketTerms {
   const source = spec.source.trim();
   if (!source || /[\r\n]/.test(source) || new TextEncoder().encode(source).length > 256) throw new RangeError("Specify an exact USD price dataset and methodology on one line.");
   const target = spec.targetUsd.includes(".") ? spec.targetUsd.replace(/0+$/, "").replace(/\.$/, "") : spec.targetUsd;
+  const direction = spec.direction ?? "above";
+  if (direction !== "above" && direction !== "under") throw new RangeError("Price direction must be above or under.");
+  const comparison = direction === "above" ? `price > ${target} USD` : `price < ${target} USD`;
   return {
-    question: `Will ${spec.asset}/USD be at least $${target} at ${spec.settlesAt}?`,
+    question: `Will ${spec.asset}/USD be ${direction} $${target} at ${spec.settlesAt}?`,
     resolutionSource: source,
-    resolutionRules: `Use the latest ${spec.asset}/USD observation from the named dataset at or before ${spec.settlesAt}, no more than 60 seconds old. YES if price >= ${target} USD; otherwise NO. Use decimal precision up to eight places without rounding. Publish the observation timestamp, USD price, dataset identity, and original response as evidence within 24 hours after settlement. INVALID if no qualifying observation is available, the dataset is ambiguous, or timely verifiable evidence is unavailable. Never substitute another source or use a price observed after settlement. Trading closes at the settlement time. The named protocol resolver proposes the result; the protocol challenge period applies.`,
+    resolutionRules: `Use the latest ${spec.asset}/USD observation from the named dataset at or before ${spec.settlesAt}, no more than 60 seconds old. YES if ${comparison}; otherwise NO. Use decimal precision up to eight places without rounding. Publish the observation timestamp, USD price, dataset identity, and original response as evidence within 24 hours after settlement. INVALID if no qualifying observation is available, the dataset is ambiguous, or timely verifiable evidence is unavailable. Never substitute another source or use a price observed after settlement. Trading closes at the settlement time. The named protocol resolver proposes the result; the protocol challenge period applies.`,
   };
 }
 
@@ -101,7 +105,9 @@ export function evaluatePriceMarketObservation(spec: PriceMarketSpec, observatio
     || !Number.isFinite(observedAt) || observedAt > settlesAt || settlesAt - observedAt > 60_000) {
     throw new RangeError("Price evidence does not match the market source, asset, or timestamp window.");
   }
-  return priceUsdUnits(observation.priceUsd) >= priceUsdUnits(spec.targetUsd) ? "yes" as const : "no" as const;
+  const price = priceUsdUnits(observation.priceUsd);
+  const target = priceUsdUnits(spec.targetUsd);
+  return (spec.direction ?? "above") === "above" ? (price > target ? "yes" as const : "no" as const) : (price < target ? "yes" as const : "no" as const);
 }
 
 export function selectPriceMarketEvidence(spec: PriceMarketSpec, observations: readonly PriceObservation[], publishedAt: string) {

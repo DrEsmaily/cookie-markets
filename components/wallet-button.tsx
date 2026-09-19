@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { COOKIE_CHAIN } from "@/lib/cookie-chain-config";
 
-type NightlyAccount = { address: string };
+export type NightlyAccount = { address: string; chains?: readonly string[] };
 type WalletActivity = { signature: string; slot: number; blockTime: number | null; status: "confirmed" | "failed" };
 type NightlyProvider = {
   solana?: {
@@ -11,6 +11,10 @@ type NightlyProvider = {
     features?: {
       "standard:connect"?: { connect: (input?: { silent?: boolean }) => Promise<{ accounts: readonly NightlyAccount[] }> };
       "standard:disconnect"?: { disconnect: () => Promise<void> };
+      "standard:signTransaction"?: { signTransaction: (input: { account: NightlyAccount; transaction: Uint8Array; chain?: `${string}:${string}`; options?: { preflightCommitment?: "confirmed" } }) => Promise<readonly { signedTransaction: Uint8Array }[]> };
+      "standard:signAndSendTransaction"?: { signAndSendTransaction: (input: { account: NightlyAccount; transaction: Uint8Array; chain: `${string}:${string}`; options?: { commitment?: "confirmed"; preflightCommitment?: "confirmed"; maxRetries?: number } }) => Promise<readonly { signature: Uint8Array }[]> };
+      "solana:signTransaction"?: { signTransaction: (input: { account: NightlyAccount; transaction: Uint8Array; chain?: `${string}:${string}`; options?: { preflightCommitment?: "confirmed" } }) => Promise<readonly { signedTransaction: Uint8Array }[]> };
+      "solana:signAndSendTransaction"?: { signAndSendTransaction: (input: { account: NightlyAccount; transaction: Uint8Array; chain: `${string}:${string}`; options?: { commitment?: "confirmed"; preflightCommitment?: "confirmed"; maxRetries?: number } }) => Promise<readonly { signature: Uint8Array }[]> };
     };
   };
 };

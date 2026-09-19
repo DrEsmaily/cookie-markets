@@ -45,7 +45,11 @@ export async function POST(request: Request) {
     const transaction = new Transaction({ feePayer: user, ...latest.value }).add(...prepared.instructions);
     const message = transaction.compileMessage();
     const simulation = await cookieChainConnection.simulateTransaction(new VersionedTransaction(message), { sigVerify: false, commitment: "confirmed", minContextSlot: latest.context.slot });
-    if (simulation.value.err) return NextResponse.json({ error: "Transaction simulation failed. No signature was requested and nothing was sent.", simulationError: simulation.value.err, logs: simulation.value.logs?.slice(-15) }, { status: 409 });
+    if (simulation.value.err) {
+      const logs = simulation.value.logs?.slice(-15);
+      const closed = logs?.some((line) => line.includes("MarketAlreadyClosed"));
+      return NextResponse.json({ error: closed ? "This market has already closed. Create or choose a future market before adding liquidity." : "Transaction simulation failed. No signature was requested and nothing was sent.", simulationError: simulation.value.err, logs }, { status: 409 });
+    }
     const fee = await cookieChainConnection.getFeeForMessage(message, "confirmed");
     if (fee.value === null) throw new Error("Could not estimate the transaction fee. Prepare again with a fresh blockhash.");
     return NextResponse.json({

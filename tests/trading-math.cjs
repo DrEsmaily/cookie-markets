@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
+const { quoteAmmBuy, maximumAmmTrade, creatorClaimable } = require("../.test-build/amm-pool.js");
 const { PRICE_SCALE, quoteOrderFill, quotePoolSwap } = require("../.test-build/trading-math.js");
 const max = 18_446_744_073_709_551_615n;
 const order = { totalShares: 1000n, filledShares: 0n, fillShares: 1000n, price: 333333n, feeBps: 30 };
@@ -64,4 +65,17 @@ test("pool integer rounding preserves custody across a deterministic reserve gri
       }
     }
   }
+});
+
+test("AMM client quote mirrors per-transaction cap, fee, slippage, and settlement", () => {
+  const cap = maximumAmmTrade(1_000_000n);
+  assert.equal(cap, 10_000n);
+  const first = quoteAmmBuy("yes", cap, 1_000_000n, 1_000_000n, 1_000_000n);
+  assert.equal(first.fee, 100n);
+  assert.equal(first.minimumSharesOut, first.sharesOut * 99n / 100n);
+  assert.throws(() => quoteAmmBuy("yes", cap + 1n, 1_000_000n, 1_000_000n, 1_000_000n));
+  assert.doesNotThrow(() => quoteAmmBuy("yes", maximumAmmTrade(first.liquidityAfter), first.liquidityAfter, first.yesReserveAfter, first.noReserveAfter));
+  assert.equal(creatorClaimable("yes", 400n, 900n), 400n);
+  assert.equal(creatorClaimable("no", 400n, 900n), 900n);
+  assert.equal(creatorClaimable("invalid", 400n, 900n), 650n);
 });
