@@ -7,7 +7,7 @@ pub use orders::*;
 mod bids;
 pub use bids::*;
 
-declare_id!("US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx");
+declare_id!("BNqof3tMVwNd7rthycJTtXkvbGtopihvL9gpeoSk8WaR");
 
 const CONFIG_SEED: &[u8] = b"config";
 const MARKET_SEED: &[u8] = b"market";
