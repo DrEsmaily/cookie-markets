@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
-const { quoteAmmBuy, maximumAmmTrade, creatorClaimable } = require("../.test-build/amm-pool.js");
+const { quoteAmmBuy, quoteWholeShares, maximumAmmTrade, creatorClaimable } = require("../.test-build/amm-pool.js");
 const { PRICE_SCALE, quoteOrderFill, quotePoolSwap } = require("../.test-build/trading-math.js");
 const max = 18_446_744_073_709_551_615n;
 const order = { totalShares: 1000n, filledShares: 0n, fillShares: 1000n, price: 333333n, feeBps: 30 };
@@ -78,4 +78,8 @@ test("AMM client quote mirrors per-transaction cap, fee, slippage, and settlemen
   assert.equal(creatorClaimable("yes", 400n, 900n), 400n);
   assert.equal(creatorClaimable("no", 400n, 900n), 900n);
   assert.equal(creatorClaimable("invalid", 400n, 900n), 650n);
+  const whole = quoteWholeShares("yes", 5_000n, 1_000_000n, 1_000_000n, 1_000_000n);
+  assert.equal(whole.sharesOut, 5_000n);
+  assert.equal(whole.grossInput, whole.netInput + whole.fee);
+  assert.throws(() => quoteWholeShares("yes", 5_000n, 1_000n, 1_000n, 1_000n));
 });

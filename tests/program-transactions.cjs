@@ -376,7 +376,20 @@ async function testAmmInitialization(config, collateralMint) {
   assert.equal((await connection.getTokenAccountBalance(poolNo)).value.amount, liquidity.toString());
   assert.equal((await connection.getTokenAccountBalance(creatorYes)).value.amount, "333333333334");
   assert.equal((await connection.getTokenAccountBalance(creatorNo)).value.amount, "0");
-  console.log("AMM initialization passed on validator: minimum real liquidity, pool creation, custody, initial odds, and creator inventory.");
+  const buyerCollateral = await createTokenAccount(collateralMint, outsider.publicKey);
+  const buyerYes = await createTokenAccount(yesMint, outsider.publicKey);
+  const buyerNo = await createTokenAccount(noMint, outsider.publicKey);
+  const quote = require("../.test-build/amm-pool.js").quoteWholeShares("yes", 5_000_000_000n, liquidity, 666_666_666_666n, liquidity);
+  await send([new TransactionInstruction({ programId: tokenProgram, keys: [meta(collateralMint, true), meta(buyerCollateral, true), meta(admin.publicKey, false, true)], data: Buffer.concat([Buffer.from([7]), integer(quote.grossInput)]) })]);
+  const buy = await client.buildBuyFromAmmInstruction({ market, creator: admin.publicKey, collateralMint, yesMint, noMint, vault, creatorCollateral, buyerCollateral, buyerYes, buyerNo, buyer: outsider.publicKey, side: "yes", sharesOut: 5_000_000_000n, maximumTotalInput: quote.maximumTotalInput });
+  await send([buy], [outsider]);
+  assert.equal((await connection.getTokenAccountBalance(buyerYes)).value.amount, "5000000000");
+  assert.equal((await connection.getTokenAccountBalance(creatorCollateral)).value.amount, "0");
+  assert.equal((await connection.getTokenAccountBalance(vault)).value.amount, (liquidity + quote.grossInput).toString());
+  const storedFees = (await connection.getAccountInfo(pool)).data.readBigUInt64LE(96);
+  assert.equal(storedFees >> 63n, 1n);
+  assert.equal(storedFees & ((1n << 63n) - 1n), quote.fee);
+  console.log("AMM initialization and whole-share purchase passed on validator: exact shares, fee custody, pool accounting, and no immediate creator payment.");
 }
 
 async function main() {

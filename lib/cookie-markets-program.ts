@@ -81,11 +81,11 @@ export function buildInitializeAmmInstruction(params: {
 export function buildBuyFromAmmInstruction(params: {
   market: PublicKey; creator: PublicKey; collateralMint: PublicKey; yesMint: PublicKey; noMint: PublicKey; vault: PublicKey;
   creatorCollateral: PublicKey; buyerCollateral: PublicKey; buyerYes: PublicKey; buyerNo: PublicKey; buyer: PublicKey;
-  side: PositionSide; grossInput: bigint; minimumSharesOut: bigint;
+  side: PositionSide; sharesOut: bigint; maximumTotalInput: bigint;
 }) {
-  if (params.grossInput <= BigInt(0) || params.minimumSharesOut <= BigInt(0)) throw new RangeError("AMM purchase values must be positive.");
+  if (params.sharesOut <= BigInt(0) || params.maximumTotalInput <= BigInt(0)) throw new RangeError("AMM purchase values must be positive.");
   const { pool, poolYes, poolNo } = deriveAmmAddresses(params.market);
-  return instruction("buy_from_amm", concatBytes(Uint8Array.of(params.side === "yes" ? 0 : 1), encodeUnsigned64(params.grossInput), encodeUnsigned64(params.minimumSharesOut)), [
+  return instruction("buy_from_amm", concatBytes(Uint8Array.of(params.side === "yes" ? 0 : 1), encodeUnsigned64(params.sharesOut), encodeUnsigned64(params.maximumTotalInput)), [
     { pubkey: params.market, isWritable: true, isSigner: false }, { pubkey: pool, isWritable: true, isSigner: false }, { pubkey: params.creator, isWritable: false, isSigner: false },
     { pubkey: params.collateralMint, isWritable: false, isSigner: false }, { pubkey: params.yesMint, isWritable: true, isSigner: false }, { pubkey: params.noMint, isWritable: true, isSigner: false }, { pubkey: params.vault, isWritable: true, isSigner: false },
     { pubkey: poolYes, isWritable: true, isSigner: false }, { pubkey: poolNo, isWritable: true, isSigner: false }, { pubkey: params.creatorCollateral, isWritable: true, isSigner: false },

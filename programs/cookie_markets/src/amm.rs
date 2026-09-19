@@ -7,6 +7,7 @@ pub const AMM_TRADE_CAP_BPS: u64 = 100;
 pub const MAX_SLIPPAGE_BPS: u64 = 100;
 pub const BPS_DENOMINATOR: u64 = 10_000;
 pub const MINIMUM_INITIAL_LIQUIDITY_TOKENS: u64 = 1_000;
+pub const DEFERRED_FEE_FLAG: u64 = 1 << 63;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AmmQuote {
@@ -49,6 +50,107 @@ pub fn maximum_trade(liquidity: u64) -> Result<u64> {
     let maximum = multiply_divide_floor(liquidity, AMM_TRADE_CAP_BPS, BPS_DENOMINATOR)?;
     require!(maximum > 0, CookieMarketsError::PoolTooSmall);
     Ok(maximum)
+}
+
+pub fn deferred_fees(value: u64) -> bool {
+    value & DEFERRED_FEE_FLAG != 0
+}
+
+pub fn creator_fees(value: u64) -> u64 {
+    value & !DEFERRED_FEE_FLAG
+}
+
+pub fn add_creator_fee(value: u64, fee: u64) -> Result<u64> {
+    let flag = value & DEFERRED_FEE_FLAG;
+    creator_fees(value)
+        .checked_add(fee)
+        .filter(|total| *total < DEFERRED_FEE_FLAG)
+        .map(|total| flag | total)
+        .ok_or_else(|| error!(CookieMarketsError::ArithmeticOverflow))
+}
+
+pub fn quote_whole_shares(
+    buy_yes: bool,
+    shares_out: u64,
+    maximum_total_input: u64,
+    liquidity: u64,
+    yes_reserve: u64,
+    no_reserve: u64,
+) -> Result<AmmQuote> {
+    require!(shares_out > 0, CookieMarketsError::ZeroAmount);
+    require!(
+        yes_reserve > 0 && no_reserve > 0,
+        CookieMarketsError::PoolTooSmall
+    );
+    let maximum_net_input = maximum_trade(liquidity)?;
+    let invariant = u128::from(yes_reserve)
+        .checked_mul(u128::from(no_reserve))
+        .ok_or(CookieMarketsError::ArithmeticOverflow)?;
+    let (bought_reserve, opposite_reserve) = if buy_yes {
+        (yes_reserve, no_reserve)
+    } else {
+        (no_reserve, yes_reserve)
+    };
+    let preserves_invariant = |net_input: u64| -> Result<bool> {
+        let bought_after = bought_reserve
+            .checked_add(net_input)
+            .and_then(|value| value.checked_sub(shares_out));
+        let opposite_after = opposite_reserve
+            .checked_add(net_input)
+            .ok_or(CookieMarketsError::ArithmeticOverflow)?;
+        Ok(bought_after
+            .map(|value| u128::from(value) * u128::from(opposite_after) >= invariant)
+            .unwrap_or(false))
+    };
+    require!(
+        preserves_invariant(maximum_net_input)?,
+        CookieMarketsError::TradeExceedsPoolCap
+    );
+    let (mut low, mut high) = (1_u64, maximum_net_input);
+    while low < high {
+        let middle = low + (high - low) / 2;
+        if preserves_invariant(middle)? {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
+    }
+    let net_input = low;
+    let fee = multiply_divide_ceil(net_input, AMM_FEE_BPS, BPS_DENOMINATOR)?;
+    let gross_input = net_input
+        .checked_add(fee)
+        .ok_or(CookieMarketsError::ArithmeticOverflow)?;
+    require!(
+        gross_input <= maximum_total_input,
+        CookieMarketsError::SlippageExceeded
+    );
+    let bought_after = bought_reserve
+        .checked_add(net_input)
+        .and_then(|value| value.checked_sub(shares_out))
+        .ok_or(CookieMarketsError::ArithmeticOverflow)?;
+    let opposite_after = opposite_reserve
+        .checked_add(net_input)
+        .ok_or(CookieMarketsError::ArithmeticOverflow)?;
+    let liquidity_after = liquidity
+        .checked_add(net_input)
+        .ok_or(CookieMarketsError::ArithmeticOverflow)?;
+    Ok(AmmQuote {
+        gross_input,
+        fee,
+        net_input,
+        shares_out,
+        yes_reserve_after: if buy_yes {
+            bought_after
+        } else {
+            opposite_after
+        },
+        no_reserve_after: if buy_yes {
+            opposite_after
+        } else {
+            bought_after
+        },
+        liquidity_after,
+    })
 }
 
 pub fn minimum_shares_with_one_percent_slippage(quoted_shares: u64) -> Result<u64> {
@@ -213,6 +315,35 @@ mod tests {
                 >= 1_000_000_000_000
         );
         assert!(quote_buy(true, 10_001, 1_000_000, 1_000_000, 1_000_000).is_err());
+    }
+
+    #[test]
+    fn whole_share_quotes_return_exact_integer_inventory() {
+        let quote =
+            quote_whole_shares(true, 5_000, 10_000, 1_000_000, 1_000_000, 1_000_000).unwrap();
+        assert_eq!(quote.shares_out, 5_000);
+        assert_eq!(quote.gross_input, quote.net_input + quote.fee);
+        assert!(
+            u128::from(quote.yes_reserve_after) * u128::from(quote.no_reserve_after)
+                >= 1_000_000_000_000
+        );
+        assert!(quote_whole_shares(
+            true,
+            5_000,
+            quote.gross_input - 1,
+            1_000_000,
+            1_000_000,
+            1_000_000
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn deferred_fee_marker_preserves_exact_fee_total() {
+        let stored = add_creator_fee(DEFERRED_FEE_FLAG, 10).unwrap();
+        assert!(deferred_fees(stored));
+        assert_eq!(creator_fees(stored), 10);
+        assert_eq!(creator_fees(add_creator_fee(stored, 15).unwrap()), 25);
     }
 
     #[test]

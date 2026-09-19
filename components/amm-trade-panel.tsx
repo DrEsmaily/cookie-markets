@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { submitPreparedTransaction } from "@/lib/nightly-transaction";
 import { formatTokenAmount } from "@/lib/token-amounts";
+import { parseTokenAmount } from "@/lib/token-amounts";
+import { quoteWholeShares } from "@/lib/amm-pool";
 
 type PoolState = {
   creator: string;
@@ -10,6 +12,8 @@ type PoolState = {
   outcome: string;
   decimals: number;
   liquidity: string;
+  yesReserve: string;
+  noReserve: string;
   yesPercent: number;
   noPercent: number;
   maximumTrade: string;
@@ -64,7 +68,11 @@ export function AmmTradePanel({ market }: { market: string }) {
     return () => window.clearInterval(timer);
   }, [connect, refresh, refreshPosition]);
 
-  const maximum = useMemo(() => pool ? display(pool.maximumTrade, pool.decimals) : "0", [pool]);
+  const quote = useMemo(() => {
+    if (!pool || !/^\d+$/.test(amount) || amount === "0") return undefined;
+    try { return quoteWholeShares(side, parseTokenAmount(amount, pool.decimals), BigInt(pool.liquidity), BigInt(pool.yesReserve), BigInt(pool.noReserve)); }
+    catch { return undefined; }
+  }, [amount, pool, side]);
 
   async function execute(action: "buy" | "claimCreator") {
     setBusy(true);
@@ -106,10 +114,10 @@ export function AmmTradePanel({ market }: { market: string }) {
       </div>
       <div className="wallet-position"><span>Your YES <strong>{display(yesHeld.toString(), pool.decimals)}</strong></span><span>Your NO <strong>{display(noHeld.toString(), pool.decimals)}</strong></span><span>Claimable now <strong>{display(walletClaimable.toString(), pool.decimals)} COOK</strong></span></div>
       {trading ? <>
-        <label className="amm-amount">Amount in COOK<input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder={`Maximum ${maximum}`} /></label>
-        <div className="amm-limit"><span>Maximum this purchase</span><button type="button" onClick={() => setAmount(maximum)}>{maximum} COOK</button></div>
-        <button className="primary-action amm-buy" type="button" disabled={busy || !amount} onClick={() => void execute("buy")}>{busy ? "Checking…" : `Buy ${side.toUpperCase()}`}</button>
-        <p className="amm-note">Includes a 1% creator fee. The contract limits every purchase to 1% of current liquidity and protects it with maximum 1% slippage.</p>
+        <label className="amm-amount">Whole {side.toUpperCase()} shares<input inputMode="numeric" value={amount} onChange={(event) => setAmount(event.target.value.replace(/\D/g, ""))} placeholder="5" /></label>
+        {quote ? <div className="trade-summary"><span>Share cost <strong>{display(quote.netInput.toString(), pool.decimals)} COOK</strong></span><span>Creator fee <strong>{display(quote.fee.toString(), pool.decimals)} COOK</strong></span><span>Total payment <strong>{display(quote.grossInput.toString(), pool.decimals)} COOK</strong></span><span>If {side.toUpperCase()} wins <strong>{amount} COOK</strong></span></div> : amount ? <p className="form-error">That whole-share amount exceeds this trade’s current limit.</p> : null}
+        <button className="primary-action amm-buy" type="button" disabled={busy || !quote} onClick={() => void execute("buy")}>{busy ? "Checking…" : `Buy ${amount || "0"} ${side.toUpperCase()}`}</button>
+        <p className="amm-note">One winning share claims 1 COOK. The displayed total includes the 1% creator fee. New-market fees remain locked until settlement.</p>
       </> : <p className="amm-note">Trading is closed. Final outcome: <strong>{pool.outcome}</strong>.</p>}
       {creatorCanClaim ? <button className="primary-action" type="button" disabled={busy} onClick={() => void execute("claimCreator")}>Claim {display(pool.creatorClaimable, pool.decimals)} COOK creator settlement</button> : null}
       <div className="amm-stats"><span>Pool liquidity <strong>{display(pool.liquidity, pool.decimals)} COOK</strong></span><span>Creator fees earned <strong>{display(pool.totalCreatorFees, pool.decimals)} COOK</strong></span></div>

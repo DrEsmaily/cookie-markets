@@ -35,7 +35,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ address: s
       if (poolAccount) {
         const pool = decodeAmmPool(deriveAmmAddresses(pubkey).pool, poolAccount);
         if (pool.creator === user.toBase58() && !pool.settlementClaimed) {
-          creatorLiquidity = market.status === "resolved" ? creatorClaimable(market.outcome, pool.yesReserve, pool.noReserve) : pool.liquidity;
+          creatorLiquidity = market.status === "resolved" ? creatorClaimable(market.outcome, pool.yesReserve, pool.noReserve) + (pool.deferredFees ? pool.totalCreatorFees : BigInt(0)) : pool.liquidity;
           if (market.status === "resolved") claimable += creatorLiquidity;
         }
       }

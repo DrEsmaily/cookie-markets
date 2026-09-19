@@ -65,7 +65,7 @@ test("AMM builders match pool account layout and exact trade limits", async () =
   assertInstruction(await client.buildBuyFromAmmInstruction({
     market, creator, collateralMint, yesMint: addresses.yesMint, noMint: addresses.noMint,
     vault: addresses.vault, creatorCollateral, buyerCollateral, buyerYes, buyerNo, buyer,
-    side: "no", grossInput: 10_000_000n, minimumSharesOut: 9_800_000n,
+    side: "no", sharesOut: 10_000_000n, maximumTotalInput: 9_800_000n,
   }), "buy_from_amm", [
     [market, true], [amm.pool, true], [creator], [collateralMint],
     [addresses.yesMint, true], [addresses.noMint, true], [addresses.vault, true],

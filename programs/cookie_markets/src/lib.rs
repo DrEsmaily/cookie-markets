@@ -127,7 +127,7 @@ pub mod cookie_markets {
         pool.liquidity = liquidity;
         pool.yes_reserve = liquidity;
         pool.no_reserve = liquidity;
-        pool.total_creator_fees = 0;
+        pool.total_creator_fees = DEFERRED_FEE_FLAG;
         pool.settlement_claimed = false;
         pool.bump = ctx.bumps.pool;
         let pool_seeds: &[&[u8]] = &[POOL_SEED, pool.market.as_ref(), &[pool.bump]];
@@ -183,8 +183,8 @@ pub mod cookie_markets {
     pub fn buy_from_amm(
         ctx: Context<BuyFromAmm>,
         side: PositionSide,
-        gross_input: u64,
-        minimum_shares_out: u64,
+        shares_out: u64,
+        maximum_total_input: u64,
     ) -> Result<()> {
         require!(
             ctx.accounts.market.status == MarketStatus::Open,
@@ -194,34 +194,37 @@ pub mod cookie_markets {
             Clock::get()?.unix_timestamp < ctx.accounts.market.closes_at,
             CookieMarketsError::MarketAlreadyClosed
         );
-        let quote = quote_buy(
+        let whole_share = 10_u64
+            .checked_pow(ctx.accounts.collateral_mint.decimals.into())
+            .ok_or(CookieMarketsError::ArithmeticOverflow)?;
+        require!(
+            shares_out % whole_share == 0,
+            CookieMarketsError::WholeSharesRequired
+        );
+        let quote = quote_whole_shares(
             side == PositionSide::Yes,
-            gross_input,
+            shares_out,
+            maximum_total_input,
             ctx.accounts.pool.liquidity,
             ctx.accounts.pool.yes_reserve,
             ctx.accounts.pool.no_reserve,
         )?;
-        require!(
-            minimum_shares_out >= minimum_shares_with_one_percent_slippage(quote.shares_out)?,
-            CookieMarketsError::SlippageTooHigh
-        );
-        require!(
-            quote.shares_out >= minimum_shares_out,
-            CookieMarketsError::SlippageExceeded
-        );
-        token::transfer_checked(
-            CpiContext::new(
-                ctx.accounts.token_program.key(),
-                TransferChecked {
-                    from: ctx.accounts.buyer_collateral.to_account_info(),
-                    mint: ctx.accounts.collateral_mint.to_account_info(),
-                    to: ctx.accounts.creator_collateral.to_account_info(),
-                    authority: ctx.accounts.buyer.to_account_info(),
-                },
-            ),
-            quote.fee,
-            ctx.accounts.collateral_mint.decimals,
-        )?;
+        let fees_deferred = deferred_fees(ctx.accounts.pool.total_creator_fees);
+        if !fees_deferred {
+            token::transfer_checked(
+                CpiContext::new(
+                    ctx.accounts.token_program.key(),
+                    TransferChecked {
+                        from: ctx.accounts.buyer_collateral.to_account_info(),
+                        mint: ctx.accounts.collateral_mint.to_account_info(),
+                        to: ctx.accounts.creator_collateral.to_account_info(),
+                        authority: ctx.accounts.buyer.to_account_info(),
+                    },
+                ),
+                quote.fee,
+                ctx.accounts.collateral_mint.decimals,
+            )?;
+        }
         token::transfer_checked(
             CpiContext::new(
                 ctx.accounts.token_program.key(),
@@ -232,7 +235,11 @@ pub mod cookie_markets {
                     authority: ctx.accounts.buyer.to_account_info(),
                 },
             ),
-            quote.net_input,
+            if fees_deferred {
+                quote.gross_input
+            } else {
+                quote.net_input
+            },
             ctx.accounts.collateral_mint.decimals,
         )?;
         let market_key = ctx.accounts.market.key();
@@ -293,10 +300,7 @@ pub mod cookie_markets {
         pool.liquidity = quote.liquidity_after;
         pool.yes_reserve = quote.yes_reserve_after;
         pool.no_reserve = quote.no_reserve_after;
-        pool.total_creator_fees = pool
-            .total_creator_fees
-            .checked_add(quote.fee)
-            .ok_or(CookieMarketsError::ArithmeticOverflow)?;
+        pool.total_creator_fees = add_creator_fee(pool.total_creator_fees, quote.fee)?;
         ctx.accounts.market.outstanding_sets = ctx
             .accounts
             .market
@@ -307,7 +311,7 @@ pub mod cookie_markets {
             market: market_key,
             buyer: ctx.accounts.buyer.key(),
             side,
-            gross_input,
+            gross_input: quote.gross_input,
             fee: quote.fee,
             shares_out: quote.shares_out,
             yes_probability_bps: yes_probability_bps(pool.yes_reserve, pool.no_reserve)?
@@ -394,6 +398,13 @@ pub mod cookie_markets {
             &nonce_bytes,
             &[market.bump],
         ];
+        let total_payout = if deferred_fees(ctx.accounts.pool.total_creator_fees) {
+            payout
+                .checked_add(creator_fees(ctx.accounts.pool.total_creator_fees))
+                .ok_or(CookieMarketsError::ArithmeticOverflow)?
+        } else {
+            payout
+        };
         token::transfer_checked(
             CpiContext::new_with_signer(
                 ctx.accounts.token_program.key(),
@@ -405,7 +416,7 @@ pub mod cookie_markets {
                 },
                 &[market_seeds],
             ),
-            payout,
+            total_payout,
             ctx.accounts.collateral_mint.decimals,
         )?;
         ctx.accounts.market.outstanding_sets = ctx
@@ -418,7 +429,7 @@ pub mod cookie_markets {
         emit!(AmmSettlementClaimed {
             market: ctx.accounts.market.key(),
             creator: ctx.accounts.creator.key(),
-            payout
+            payout: total_payout
         });
         Ok(())
     }
@@ -1484,6 +1495,8 @@ pub enum CookieMarketsError {
     TradeExceedsPoolCap,
     #[msg("Trade is too small after the creator fee")]
     TradeTooSmall,
+    #[msg("AMM purchases must use whole shares")]
+    WholeSharesRequired,
     #[msg("AMM reserve invariant would decrease")]
     PoolInvariantViolation,
     #[msg("Initial AMM liquidity must be at least 1,000 COOK")]

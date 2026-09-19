@@ -4,7 +4,7 @@ import { cookieChainConnection } from "@/lib/cookie-chain";
 import { COOKIE_CHAIN } from "@/lib/cookie-chain-config";
 import { decodeMarketAccount } from "@/lib/protocol-accounts";
 import { readVerifiedProtocol } from "@/lib/protocol-reader";
-import { decodeAmmPool, deriveAmmAddresses, ammProbabilityBps, creatorClaimable, maximumAmmTrade, quoteAmmBuy } from "@/lib/amm-pool";
+import { decodeAmmPool, deriveAmmAddresses, ammProbabilityBps, creatorClaimable, maximumAmmTrade, quoteWholeShares } from "@/lib/amm-pool";
 import { buildBuyFromAmmInstruction, buildClaimAmmSettlementInstruction } from "@/lib/cookie-markets-program";
 import { buildCreateAssociatedTokenInstruction, buildSyncNativeInstruction, deriveAssociatedTokenAddress, NATIVE_MINT } from "@/lib/token-instructions";
 import { parseTokenAmount } from "@/lib/token-amounts";
@@ -48,7 +48,7 @@ export async function GET(request: Request) {
       maximumTrade: maximumAmmTrade(state.pool.liquidity).toString(),
       totalCreatorFees: state.pool.totalCreatorFees.toString(),
       settlementClaimed: state.pool.settlementClaimed,
-      creatorClaimable: creatorClaimable(state.market.outcome, state.pool.yesReserve, state.pool.noReserve).toString(),
+      creatorClaimable: (creatorClaimable(state.market.outcome, state.pool.yesReserve, state.pool.noReserve) + (state.pool.deferredFees ? state.pool.totalCreatorFees : BigInt(0))).toString(),
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Could not read the pool." }, { status: 404 });
@@ -77,9 +77,9 @@ export async function POST(request: Request) {
     if (body.action === "buy") {
       if (state.market.status !== "open" || Number(state.market.closesAt) * 1_000 <= Date.now()) return NextResponse.json({ error: "Trading is closed." }, { status: 409 });
       if (body.side !== "yes" && body.side !== "no") return NextResponse.json({ error: "Choose YES or NO." }, { status: 400 });
-      if (typeof body.amount !== "string") return NextResponse.json({ error: "Enter a purchase amount." }, { status: 400 });
-      const grossInput = parseTokenAmount(body.amount, state.protocol.collateralDecimals);
-      quote = quoteAmmBuy(body.side, grossInput, state.pool.liquidity, state.pool.yesReserve, state.pool.noReserve);
+      if (typeof body.amount !== "string" || !/^\d+$/.test(body.amount) || body.amount === "0") return NextResponse.json({ error: "Enter a whole number of shares." }, { status: 400 });
+      const sharesOut = parseTokenAmount(body.amount, state.protocol.collateralDecimals);
+      quote = quoteWholeShares(body.side, sharesOut, state.pool.liquidity, state.pool.yesReserve, state.pool.noReserve);
       instructions.push(
         buildCreateAssociatedTokenInstruction(user, collateralMint),
         buildCreateAssociatedTokenInstruction(user, yesMint),
@@ -87,13 +87,13 @@ export async function POST(request: Request) {
         buildCreateAssociatedTokenInstruction(creator, collateralMint, user),
       );
       if (collateralMint.equals(NATIVE_MINT)) instructions.push(
-        SystemProgram.transfer({ fromPubkey: user, toPubkey: userCollateral, lamports: grossInput }),
+        SystemProgram.transfer({ fromPubkey: user, toPubkey: userCollateral, lamports: quote.grossInput }),
         buildSyncNativeInstruction(userCollateral),
       );
       instructions.push(await buildBuyFromAmmInstruction({
         market: marketAddress, creator, collateralMint, yesMint, noMint, vault,
         creatorCollateral, buyerCollateral: userCollateral, buyerYes: userYes, buyerNo: userNo,
-        buyer: user, side: body.side, grossInput, minimumSharesOut: quote.minimumSharesOut,
+        buyer: user, side: body.side, sharesOut, maximumTotalInput: quote.maximumTotalInput,
       }));
     } else if (body.action === "claimCreator") {
       if (!user.equals(creator)) return NextResponse.json({ error: "Only this market’s creator can claim the remaining pool settlement." }, { status: 403 });
