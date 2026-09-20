@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/DrEsmaily/cookie-markets/actions/workflows/ci.yml/badge.svg)](https://github.com/DrEsmaily/cookie-markets/actions/workflows/ci.yml)
 
-CookieMarkets is a real, on-chain prediction market for Cookie Chain. It lets anyone create a simple Bitcoin or Ethereum price question, provide the starting liquidity in COOK, and let other users buy YES or NO shares with a Nightly wallet.
+CookieMarkets is a real, on-chain prediction market for Cookie Chain. A creator provides the starting COOK liquidity and earns the market's 1% trading fees when it settles. Traders buy simple YES or NO shares; if their outcome wins, they can claim the corresponding COOK payout. Every market begins with meaningful locked collateral, giving COOK a productive use beyond holding and increasing the token's everyday utility on Cookie Chain.
 
 The goal is to make prediction markets feel understandable to ordinary users. People see the question, current odds, maximum trade, deadline, position, and possible payout without needing to understand the AMM calculations behind the market.
 
@@ -10,13 +10,13 @@ The goal is to make prediction markets feel understandable to ordinary users. Pe
 
 CookieMarkets turns COOK from a token people can hold into an asset people can actively use. It is a working consumer application: a market creator supplies real liquidity, traders take clear YES or NO positions, the market updates its odds on-chain, and users can claim their outcome when the rule is resolved. There is no simulated balance and no hidden off-chain ledger.
 
-For judges, the project demonstrates the complete journey from wallet to protocol:
+Each market benefits the people and network involved:
 
-- A clean, responsive product interface that makes an advanced financial primitive approachable.
-- A deployed Cookie Chain program that controls collateral, share issuance, trading limits, settlement state, and claims.
-- Real Nightly wallet connection and transaction approval, with every action inspectable on Cookiescan.
-- Transparent rules, exact UTC deadlines, and a committed public price source for supported BTC and ETH markets.
-- A focused economic design: creator-provided liquidity, a protected 1% maximum trade size, and deferred creator fees that preserve clear user-facing numbers.
+- Creators can earn the accumulated 1% trading fees for contributing initial liquidity.
+- Winning traders can claim their on-chain payout after a verified result.
+- The 100 COOK minimum collateral keeps markets meaningful and locks COOK in a productive protocol use.
+- Every creation, trade, settlement, and claim adds transparent wallet activity to Cookie Chain.
+- Users get transparent rules, exact UTC deadlines, and a committed public price source for supported BTC and ETH markets.
 
 The MVP is deliberately narrow so it can be tested honestly with real COOK today. Its long-term opportunity is much larger: a reusable market layer for the Cookie Chain ecosystem, covering crypto prices, community forecasts, ecosystem milestones, governance questions, creator markets, sports, culture, and other objectively verifiable events. CookieMarkets is designed to grow from a polished price-market MVP into an everyday prediction and coordination tool for the network.
 
