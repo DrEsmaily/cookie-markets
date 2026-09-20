@@ -455,6 +455,9 @@ test("full transaction preparation creates the correct ATAs without signatures",
   assert.equal(wrapped.instructions[3].data.readBigUInt64LE(4), position.amount);
   assert.deepEqual(wrapped.instructions[4].data, Buffer.from([17]));
   assert.ok(wrapped.instructions[4].keys[0].pubkey.equals(wrapped.userCollateral));
+  const redeemed = await buildPositionTransactionInstructions({ ...position, collateralMint: NATIVE_MINT, action: "redeem", side: "yes" });
+  assert.deepEqual(redeemed.instructions.at(-1).data, Buffer.from([9]));
+  assert.ok(redeemed.instructions.at(-1).keys[1].pubkey.equals(user));
   await assert.rejects(buildPositionTransactionInstructions({ ...position, action: "merge", wrapNative: true }), /wrapping/);
   await assert.rejects(buildPositionTransactionInstructions({ ...position, action: "redeem" }), /side/);
   await assert.rejects(buildPositionTransactionInstructions({ ...position, action: "unknown" }), /action/);

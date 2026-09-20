@@ -57,7 +57,7 @@ export async function POST(request: Request) {
       genesisHash: COOKIE_CHAIN.genesisHash, feePayer: user.toBase58(), market: market.address, action, amountBaseUnits: amount.toString(),
       collateralMint: market.collateralMint, userCollateral: prepared.userCollateral.toBase58(), userYes: prepared.userYes.toBase58(), userNo: prepared.userNo.toBase58(),
       feeBaseUnits: fee.value.toString(), blockhash: latest.value.blockhash, lastValidBlockHeight: latest.value.lastValidBlockHeight, simulationSlot: simulation.context.slot,
-      note: "Unsigned simulation only. Fees exclude account-creation rent. Withdrawals and redemptions return wrapped collateral; unwrapping is a separate explicit action.",
+      note: "Unsigned simulation only. Fees exclude account-creation rent. Native collateral redemptions are automatically unwrapped before the transaction completes.",
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Could not prepare this transaction." }, { status: error instanceof RequestSizeError ? 413 : error instanceof SyntaxError || error instanceof RangeError ? 400 : 503 });

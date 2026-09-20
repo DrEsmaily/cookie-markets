@@ -6,7 +6,7 @@ import { decodeMarketAccount } from "@/lib/protocol-accounts";
 import { readVerifiedProtocol } from "@/lib/protocol-reader";
 import { decodeAmmPool, deriveAmmAddresses, ammProbabilityBps, creatorClaimable, maximumAmmTrade, quoteWholeShares } from "@/lib/amm-pool";
 import { buildBuyFromAmmInstruction, buildClaimAmmSettlementInstruction } from "@/lib/cookie-markets-program";
-import { buildCreateAssociatedTokenInstruction, buildSyncNativeInstruction, deriveAssociatedTokenAddress, NATIVE_MINT } from "@/lib/token-instructions";
+import { buildCreateAssociatedTokenInstruction, buildSyncNativeInstruction, buildUnwrapNativeInstruction, deriveAssociatedTokenAddress, NATIVE_MINT } from "@/lib/token-instructions";
 import { parseTokenAmount } from "@/lib/token-amounts";
 import { readPreparationBody, RequestSizeError } from "@/lib/preparation-body";
 
@@ -101,6 +101,7 @@ export async function POST(request: Request) {
       if (state.pool.settlementClaimed) return NextResponse.json({ error: "The creator settlement was already claimed." }, { status: 409 });
       instructions.push(buildCreateAssociatedTokenInstruction(creator, collateralMint));
       instructions.push(await buildClaimAmmSettlementInstruction({ market: marketAddress, collateralMint, yesMint, noMint, vault, creatorCollateral, creator }));
+      if (collateralMint.equals(NATIVE_MINT)) instructions.push(buildUnwrapNativeInstruction(creator));
     } else {
       return NextResponse.json({ error: "Choose buy or creator settlement claim." }, { status: 400 });
     }

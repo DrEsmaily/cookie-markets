@@ -1,5 +1,5 @@
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
-import { NATIVE_MINT, buildCreateAssociatedTokenInstruction, buildSyncNativeInstruction, deriveAssociatedTokenAddress } from "./token-instructions";
+import { NATIVE_MINT, buildCreateAssociatedTokenInstruction, buildSyncNativeInstruction, buildUnwrapNativeInstruction, deriveAssociatedTokenAddress } from "./token-instructions";
 import { PositionSide, buildMergePositionsInstruction, buildRedeemInstruction, buildSplitCollateralInstruction, deriveMarketAddresses } from "./cookie-markets-program";
 
 export function buildWrapNativeInstructions(user: PublicKey, amount: bigint): TransactionInstruction[] {
@@ -44,5 +44,6 @@ export async function buildPositionTransactionInstructions(params: {
   ];
   if (params.wrapNative) instructions.push(...buildWrapNativeInstructions(params.user, params.amount).slice(1));
   instructions.push(operation);
+  if (params.action === "redeem" && params.collateralMint.equals(NATIVE_MINT)) instructions.push(buildUnwrapNativeInstruction(params.user));
   return { instructions, userCollateral, userYes, userNo, ...addresses };
 }
