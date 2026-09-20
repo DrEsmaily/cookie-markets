@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import type { VerifiedMarket } from "@/lib/protocol-accounts";
 import { formatTokenAmount } from "@/lib/token-amounts";
 import type { MarketTerms } from "@/lib/market-terms";
-import { formatUtcTimestamp, marketLifecycle } from "@/lib/market-lifecycle";
+import { formatMarketText, formatUtcTimestamp, marketLifecycle } from "@/lib/market-lifecycle";
 import { UI_LAUNCH_UNIX_SECONDS } from "@/lib/ui-launch";
 
 type MarketResponse = { deployed: boolean; markets?: (VerifiedMarket & { terms?: MarketTerms; termsError?: string; yesPercent?: number; liquidity?: string })[]; collateralDecimals?: number; error?: string };
@@ -36,7 +36,7 @@ export function LiveMarketList() {
           const lifecycle = marketLifecycle(market);
           return <Link className={`market-card stage-${lifecycle.key}`} href={`/markets/${market.address}`} key={market.address}>
             <div className="market-meta"><span>Crypto</span><span>{formatUtcTimestamp(market.closesAt)}</span></div>
-            <h2>{market.terms?.question ?? "Verified crypto price market"}</h2>
+            <h2>{market.terms ? formatMarketText(market.terms.question) : "Verified crypto price market"}</h2>
             <div className="market-prices" aria-label={`Yes chance: ${market.yesPercent ?? 50}%`}>
               <div className="price-track"><div className="price-fill" style={{ width: `${market.yesPercent ?? 50}%` }} /></div>
               <strong>{(market.yesPercent ?? 50).toFixed(1)}% Yes</strong>

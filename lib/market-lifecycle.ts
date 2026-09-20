@@ -27,3 +27,10 @@ export function formatUtcTimestamp(unixSeconds: string) {
     hour12: false, timeZone: "UTC", timeZoneName: "short",
   }).format(new Date(Number(unixSeconds) * 1_000));
 }
+
+export function formatMarketText(value: string) {
+  return value.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.000Z/g, (timestamp) => new Intl.DateTimeFormat("en-GB", {
+    year: "numeric", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit",
+    hour12: false, timeZone: "UTC",
+  }).format(new Date(timestamp)).replace(",", " ·") + " UTC");
+}

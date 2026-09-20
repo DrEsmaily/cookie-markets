@@ -11,6 +11,7 @@ import {
 } from "@/lib/cookie-markets-program";
 import { MarketDraft, validateMarketDraft } from "@/lib/protocol";
 import { createPriceMarketTerms, coinbasePriceMarketSpec, hashMarketTerms } from "@/lib/market-terms";
+import { formatMarketText } from "@/lib/market-lifecycle";
 import { createMarketTermsRecord, type MarketTermsRecord } from "@/lib/market-terms-record";
 import { cookieChainConnection } from "@/lib/cookie-chain";
 import { COOKIE_CHAIN } from "@/lib/cookie-chain-config";
@@ -206,7 +207,7 @@ export function MarketDraftForm() {
       </fieldset>
       <button className="primary-action form-action" type="submit">Review market</button>
       {prepareError ? <p className="form-error" role="alert">{prepareError}</p> : null}
-      {isReady ? <div className="draft-ready"><strong>{draft.question}</strong><p>Settlement source: Coinbase Exchange · Collateral: COOK (wrapped automatically for the on-chain program)</p><details><summary>View exact settlement rules</summary><p>{draft.resolutionRules}</p><p>{collateralMessage}</p></details><button type="button" className="secondary-action" disabled={isPreparing || !collateralMint.trim()} onClick={() => void prepareInstructions()}>{isPreparing ? "Checking on-chain costs…" : "Prepare real market"}</button></div> : null}
+      {isReady ? <div className="draft-ready"><strong>{formatMarketText(draft.question)}</strong><p>Settlement source: Coinbase Exchange · Collateral: COOK (wrapped automatically for the on-chain program)</p><details><summary>View exact settlement rules</summary><p>{formatMarketText(draft.resolutionRules)}</p><p>{collateralMessage}</p></details><button type="button" className="secondary-action" disabled={isPreparing || !collateralMint.trim()} onClick={() => void prepareInstructions()}>{isPreparing ? "Checking on-chain costs…" : "Prepare real market"}</button></div> : null}
       {preview ? <p><a className="secondary-action" download={`market-${preview.market}.json`} href={`data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(preview.terms, null, 2))}`}>Download public market terms</a></p> : null}
       {preview ? <div className="draft-ready"><strong>Simulation passed. Review before approving.</strong><p>This creates and opens the market atomically. Account rent is additional to the estimated network fee.</p><dl className="instruction-preview"><div><dt>Market</dt><dd>{preview.market}</dd></div><div><dt>YES mint</dt><dd>{preview.yesMint}</dd></div><div><dt>NO mint</dt><dd>{preview.noMint}</dd></div><div><dt>Vault</dt><dd>{preview.vault}</dd></div><div><dt>Creator</dt><dd>{preview.creator}</dd></div><div><dt>Collateral</dt><dd>{preview.collateralMint}</dd></div><div><dt>Nonce</dt><dd>{preview.marketNonce}</dd></div><div><dt>Network fee</dt><dd>{preview.fee} base units</dd></div><div><dt>Block expiry</dt><dd>{preview.blockHeight}</dd></div><div><dt>Create data</dt><dd>{preview.createData}</dd></div><div><dt>Open data</dt><dd>{preview.openData}</dd></div></dl><button type="button" className="primary-action" disabled={isPreparing || Boolean(submissionMessage)} onClick={() => void createMarket()}>{isPreparing ? "Waiting for Nightly…" : "Create real market in Nightly"}</button></div> : null}
       {submissionMessage ? <p className="draft-ready"><strong>{submissionMessage}</strong></p> : null}

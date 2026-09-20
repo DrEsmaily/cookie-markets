@@ -9,7 +9,7 @@ import { AmmTradePanel } from "@/components/amm-trade-panel";
 import { verifyPublishedMarketTerms, type MarketTermsRecord } from "@/lib/market-terms-record";
 import { readPublishedMarketTerms } from "@/lib/published-market-terms";
 import { PriceEvidenceReview } from "@/components/price-evidence-review";
-import { formatUtcTimestamp, marketLifecycle } from "@/lib/market-lifecycle";
+import { formatMarketText, formatUtcTimestamp, marketLifecycle } from "@/lib/market-lifecycle";
 
 export async function OnchainMarketDetail({ address }: { address: string }) {
   try {
@@ -32,8 +32,8 @@ export async function OnchainMarketDetail({ address }: { address: string }) {
       <section className="resolution-card">
         <p className="eyebrow">VERIFIED COOKIE CHAIN MARKET</p>
         <div className={`market-stage stage-${lifecycle.key}`}><strong>{lifecycle.label}</strong><span>{lifecycle.description}</span></div>
-        <h2>{terms?.question ?? "On-chain market account"}</h2>
-        {terms ? <><p>Published question and rules match this market’s immutable on-chain hashes.</p><h3>Resolution source</h3><p>{terms.resolutionSource}</p><h3>Settlement rules</h3><p style={{ whiteSpace: "pre-wrap" }}>{terms.resolutionRules}</p></> : termsError ? <p role="alert">{termsError} Deposits are disabled. Withdrawals and redemption remain available for simulation.</p> : <p>No readable terms have been published in the registry. Supply the exact question and settlement rules below to verify them before preparing a deposit.</p>}
+        <h2>{terms ? formatMarketText(terms.question) : "On-chain market account"}</h2>
+        {terms ? <><p>Published question and rules match this market’s immutable on-chain hashes.</p><h3>Resolution source</h3><p>{formatMarketText(terms.resolutionSource)}</p><h3>Settlement rules</h3><p style={{ whiteSpace: "pre-wrap" }}>{formatMarketText(terms.resolutionRules)}</p></> : termsError ? <p role="alert">{termsError} Deposits are disabled. Withdrawals and redemption remain available for simulation.</p> : <p>No readable terms have been published in the registry. Supply the exact question and settlement rules below to verify them before preparing a deposit.</p>}
         <dl>
           <div><dt>Market</dt><dd><a href={`${COOKIE_CHAIN.explorerUrl}/address/${market.address}`} target="_blank" rel="noreferrer">{market.address} ↗</a></dd></div>
           <div><dt>Creator</dt><dd>{market.creator}</dd></div>
