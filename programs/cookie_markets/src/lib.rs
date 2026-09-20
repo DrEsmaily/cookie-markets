@@ -1140,7 +1140,6 @@ pub struct ProposeResolution<'info> {
     pub config: Account<'info, ProtocolConfig>,
     #[account(
         mut,
-        has_one = resolver,
         seeds = [MARKET_SEED, market.creator.as_ref(), &market.nonce.to_le_bytes()],
         bump = market.bump
     )]
@@ -1176,7 +1175,6 @@ pub struct ResolveChallenge<'info> {
     #[account(seeds = [CONFIG_SEED], bump = config.bump, has_one = resolver)]
     pub config: Account<'info, ProtocolConfig>,
     #[account(
-        has_one = resolver,
         seeds = [MARKET_SEED, market.creator.as_ref(), &market.nonce.to_le_bytes()],
         bump = market.bump,
         constraint = market.status == MarketStatus::Proposed @ CookieMarketsError::InvalidMarketState
