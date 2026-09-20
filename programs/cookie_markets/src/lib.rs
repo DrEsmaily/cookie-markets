@@ -466,6 +466,33 @@ pub mod cookie_markets {
         Ok(())
     }
 
+    pub fn update_protocol(
+        ctx: Context<UpdateProtocol>,
+        fee_recipient: Pubkey,
+        resolver: Pubkey,
+        fee_bps: u16,
+        challenge_period: i64,
+    ) -> Result<()> {
+        ProtocolConfig::validate_initialization(
+            fee_recipient,
+            resolver,
+            fee_bps,
+            challenge_period,
+        )?;
+        let config = &mut ctx.accounts.config;
+        config.fee_recipient = fee_recipient;
+        config.resolver = resolver;
+        config.fee_bps = fee_bps;
+        config.challenge_period = challenge_period;
+        emit!(ProtocolInitialized {
+            admin: config.admin,
+            resolver,
+            collateral_mint: config.collateral_mint,
+            fee_bps,
+        });
+        Ok(())
+    }
+
     pub fn create_market(
         ctx: Context<CreateMarket>,
         market_nonce: u64,
@@ -953,6 +980,13 @@ pub struct OpenMarket<'info> {
 }
 
 #[derive(Accounts)]
+pub struct UpdateProtocol<'info> {
+    #[account(mut, seeds = [CONFIG_SEED], bump = config.bump, has_one = admin)]
+    pub config: Account<'info, ProtocolConfig>,
+    pub admin: Signer<'info>,
+}
+
+#[derive(Accounts)]
 pub struct SplitCollateral<'info> {
     #[account(
         mut,
@@ -1222,7 +1256,7 @@ impl ProtocolConfig {
         );
         require!(fee_bps <= MAX_FEE_BPS, CookieMarketsError::FeeTooHigh);
         require!(
-            challenge_period > 0,
+            challenge_period >= 0,
             CookieMarketsError::InvalidChallengePeriod
         );
         Ok(())
@@ -1499,7 +1533,7 @@ pub enum CookieMarketsError {
     WholeSharesRequired,
     #[msg("AMM reserve invariant would decrease")]
     PoolInvariantViolation,
-    #[msg("Initial AMM liquidity must be at least 1,000 COOK")]
+    #[msg("Initial AMM liquidity must be at least 100 COOK")]
     InitialLiquidityTooSmall,
     #[msg("Submitted slippage tolerance exceeds 1%")]
     SlippageTooHigh,
@@ -1535,7 +1569,8 @@ mod tests {
         assert!(ProtocolConfig::validate_initialization(Pubkey::default(), valid, 0, 1).is_err());
         assert!(ProtocolConfig::validate_initialization(valid, Pubkey::default(), 0, 1).is_err());
         assert!(ProtocolConfig::validate_initialization(valid, valid, 1_001, 1).is_err());
-        assert!(ProtocolConfig::validate_initialization(valid, valid, 0, 0).is_err());
+        assert!(ProtocolConfig::validate_initialization(valid, valid, 0, 0).is_ok());
+        assert!(ProtocolConfig::validate_initialization(valid, valid, 0, -1).is_err());
     }
 
     #[test]

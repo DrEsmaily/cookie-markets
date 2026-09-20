@@ -305,6 +305,7 @@ test("protocol initialization matches Anchor arguments and permissions", async (
   const fee = Buffer.alloc(2);
   fee.writeUInt16LE(1000);
   assertInstruction(await client.buildInitializeProtocolInstruction({ admin: creator, feeRecipient: user, resolver: creator, collateralMint, feeBps: 1000, challengePeriod: 86400n }), "initialize_protocol", [[client.deriveConfigAddress(), true], [collateralMint], [creator, true, true], [SystemProgram.programId]], Buffer.concat([user.toBuffer(), creator.toBuffer(), fee, unsigned(86400n)]));
+  assertInstruction(await client.buildUpdateProtocolInstruction({ admin: creator, feeRecipient: user, resolver: creator, feeBps: 1000, challengePeriod: 0n }), "update_protocol", [[client.deriveConfigAddress(), true], [creator, false, true]], Buffer.concat([user.toBuffer(), creator.toBuffer(), fee, unsigned(0n)]));
 });
 
 test("market creation matches the contract wire layout", async () => {
@@ -352,7 +353,8 @@ test("invalid runtime inputs fail before instructions are constructed", async ()
   await assert.rejects(client.buildResolveChallengeInstruction({ ...resolution, evidenceHash: Buffer.alloc(31) }), RangeError);
   const initialize = { admin: creator, feeRecipient: user, resolver: user, collateralMint, feeBps: 0, challengePeriod: 1n };
   for (const feeBps of [-1, 1001, 0.5, NaN]) await assert.rejects(client.buildInitializeProtocolInstruction({ ...initialize, feeBps }), RangeError);
-  await assert.rejects(client.buildInitializeProtocolInstruction({ ...initialize, challengePeriod: 0n }), RangeError);
+  assertInstruction(await client.buildInitializeProtocolInstruction({ ...initialize, challengePeriod: 0n }), "initialize_protocol", [[client.deriveConfigAddress(), true], [collateralMint], [creator, true, true], [SystemProgram.programId]], Buffer.concat([user.toBuffer(), user.toBuffer(), Buffer.alloc(2), unsigned(0n)]));
+  await assert.rejects(client.buildInitializeProtocolInstruction({ ...initialize, challengePeriod: -1n }), RangeError);
   const create = { creator, collateralMint, marketNonce, questionHash: Buffer.alloc(32, 1), rulesHash: Buffer.alloc(32, 2), closesAt: 20n, resolveAfter: 30n };
   await assert.rejects(client.buildCreateMarketInstruction({ ...create, questionHash: Buffer.alloc(32) }), RangeError);
   await assert.rejects(client.buildCreateMarketInstruction({ ...create, resolveAfter: 10n }), RangeError);
@@ -401,7 +403,7 @@ test("config decoding verifies layout, owner, PDA, bump, and protocol limits", (
   corrupted.writeUInt16LE(1001, 136);
   assert.throws(() => decodeProtocolConfig(address, { ...account, data: corrupted }), /limits/);
   corrupted.set(account.data);
-  corrupted.writeBigInt64LE(0n, 138);
+  corrupted.writeBigInt64LE(-1n, 138);
   assert.throws(() => decodeProtocolConfig(address, { ...account, data: corrupted }), /limits/);
 });
 

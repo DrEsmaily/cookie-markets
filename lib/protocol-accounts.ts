@@ -22,7 +22,7 @@ export function decodeProtocolConfig(address: PublicKey, account: ProgramAccount
   if (!expected.equals(address) || data[146] !== bump) throw new Error("Protocol config PDA is invalid.");
   const feeBps = data.readUInt16LE(136);
   const challengePeriod = data.readBigInt64LE(138);
-  if (feeBps > 1000 || challengePeriod <= BigInt(0)) throw new Error("Protocol limits are invalid.");
+  if (feeBps > 1000 || challengePeriod < BigInt(0)) throw new Error("Protocol limits are invalid.");
   return { configAddress: deriveConfigAddress().toBase58(), admin: keyAt(data, 8), feeRecipient: keyAt(data, 40), resolver: keyAt(data, 72), collateralMint: keyAt(data, 104), feeBps, challengePeriod: challengePeriod.toString() };
 }
 

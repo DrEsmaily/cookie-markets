@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
+    "resolver": "node scripts/market-keeper.mjs --watch",
     "test:http": "node --test tests/preparation-http.cjs",
     "test": "tsc --strict --target ES2020 --module commonjs --moduleResolution node --esModuleInterop --skipLibCheck --outDir .test-build lib/cookie-markets-program.ts lib/token-amounts.ts lib/protocol.ts lib/protocol-accounts.ts lib/protocol-reader.ts lib/position-transactions.ts lib/ask-transactions.ts lib/preparation-body.ts lib/market-terms.ts lib/market-terms-record.ts lib/published-market-terms.ts lib/trading-math.ts lib/amm-pool.ts && node --test tests/client-instructions.cjs tests/trading-math.cjs tests/ask-transactions.cjs"
   },

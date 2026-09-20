@@ -285,8 +285,8 @@ export async function buildInitializeProtocolInstruction(params: {
   if (!Number.isInteger(params.feeBps) || params.feeBps < 0 || params.feeBps > 1_000) {
     throw new RangeError("feeBps must be an integer between 0 and 1000");
   }
-  if (params.challengePeriod <= BigInt(0)) {
-    throw new RangeError("challengePeriod must be positive");
+  if (params.challengePeriod < BigInt(0)) {
+    throw new RangeError("challengePeriod cannot be negative");
   }
 
   return instruction(
@@ -304,6 +304,21 @@ export async function buildInitializeProtocolInstruction(params: {
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
   );
+}
+
+export async function buildUpdateProtocolInstruction(params: {
+  admin: PublicKey;
+  feeRecipient: PublicKey;
+  resolver: PublicKey;
+  feeBps: number;
+  challengePeriod: bigint;
+}): Promise<TransactionInstruction> {
+  if (!Number.isInteger(params.feeBps) || params.feeBps < 0 || params.feeBps > 1_000) throw new RangeError("feeBps must be an integer between 0 and 1000");
+  if (params.challengePeriod < BigInt(0)) throw new RangeError("challengePeriod cannot be negative");
+  return instruction("update_protocol", concatBytes(params.feeRecipient.toBytes(), params.resolver.toBytes(), encodeUnsigned16(params.feeBps), encodeSigned64(params.challengePeriod)), [
+    { pubkey: deriveConfigAddress(), isSigner: false, isWritable: true },
+    { pubkey: params.admin, isSigner: true, isWritable: false },
+  ]);
 }
 
 export function deriveMarketAddresses(
