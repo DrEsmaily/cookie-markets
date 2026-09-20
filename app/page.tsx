@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { LiveMarketList } from "@/components/live-market-list";
 import { LiveAssetPrices } from "@/components/live-asset-prices";
 import { SiteHeader } from "@/components/site-header";
@@ -14,10 +13,6 @@ export default function Home() {
           <p className="eyebrow">THE CRYPTO PRICE DESK</p>
           <h1>Trade the next move.</h1>
           <p className="lede">Take a clear YES or NO position on where Bitcoin and Ethereum will be—then settle transparently on Cookie Chain.</p>
-          <div className="hero-actions">
-            <a className="primary-action" href="#live-markets">Browse markets <span>↘</span></a>
-            <Link className="text-action" href="/create">Launch your own market</Link>
-          </div>
         </div>
         <aside className="hero-board">
           <div className="board-heading"><span>Market reference</span><strong>Live</strong></div>
