@@ -6,6 +6,20 @@ CookieMarkets is a real, on-chain prediction market for Cookie Chain. It lets an
 
 The goal is to make prediction markets feel understandable to ordinary users. People see the question, current odds, maximum trade, deadline, position, and possible payout without needing to understand the AMM calculations behind the market.
 
+## Why CookieMarkets matters
+
+CookieMarkets turns COOK from a token people can hold into an asset people can actively use. It is a working consumer application: a market creator supplies real liquidity, traders take clear YES or NO positions, the market updates its odds on-chain, and users can claim their outcome when the rule is resolved. There is no simulated balance and no hidden off-chain ledger.
+
+For judges, the project demonstrates the complete journey from wallet to protocol:
+
+- A clean, responsive product interface that makes an advanced financial primitive approachable.
+- A deployed Cookie Chain program that controls collateral, share issuance, trading limits, settlement state, and claims.
+- Real Nightly wallet connection and transaction approval, with every action inspectable on Cookiescan.
+- Transparent rules, exact UTC deadlines, and a committed public price source for supported BTC and ETH markets.
+- A focused economic design: creator-provided liquidity, a protected 1% maximum trade size, and deferred creator fees that preserve clear user-facing numbers.
+
+The MVP is deliberately narrow so it can be tested honestly with real COOK today. Its long-term opportunity is much larger: a reusable market layer for the Cookie Chain ecosystem, covering community forecasts, ecosystem milestones, governance questions, creator markets, and other objectively verifiable events. CookieMarkets is designed to grow from a polished price-market MVP into an everyday prediction and coordination tool for the network.
+
 ## What the product does
 
 - Creates BTC and ETH price markets with an exact UTC settlement time.
