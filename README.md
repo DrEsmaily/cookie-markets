@@ -1,85 +1,155 @@
 # CookieMarkets
 
-A prediction-market application for Cookie Chain, with a Next.js frontend and an Anchor on-chain program.
+[![CI](https://github.com/DrEsmaily/cookie-markets/actions/workflows/ci.yml/badge.svg)](https://github.com/DrEsmaily/cookie-markets/actions/workflows/ci.yml)
 
-## Included today
+CookieMarkets is a real, on-chain prediction market for Cookie Chain. It lets anyone create a simple Bitcoin or Ethereum price question, provide the starting liquidity in COOK, and let other users buy YES or NO shares with a Nightly wallet.
 
-- Next.js App Router + TypeScript frontend.
-- Cookie Chain RPC, WebSocket, explorer and verified genesis hash configuration.
-- Read-only live RPC health and slot reporting.
-- Nightly Wallet Standard connection that only requests account access; it creates no transactions and requests no signatures.
-- A warning when Nightly reports a genesis hash that does not match Cookie Chain.
-- Read-only native COOK balance display for the connected address.
-- Silent reconnection for previously authorized wallets, periodic balance refresh, and explicit disconnect.
-- A read-only wallet panel with recent Cookie Chain transaction signatures and status.
-- Direct Cookiescan links and local timestamps for wallet activity.
-- Local domain models and a responsive market-discovery interface.
-- Market detail pages with explicit resolution sources and rules.
-- A local market-draft form with protocol-aware validation and no transaction flow.
-- A conservative [protocol design](docs/protocol-design.md).
-- An Anchor program covering market creation, collateralized shares, resolution challenges, finalization, and redemption.
-- On-chain schedule, hash, fee, signer, PDA, and state-transition validation.
-- Program-level enforcement of the single approved collateral mint.
-- Read-only Cookie Chain protocol discovery with config owner and discriminator verification.
-- Read-only market discovery at `/api/protocol?markets=true`, with account size, discriminator, and market PDA verification. Integer balances and timestamps are returned as decimal strings to preserve precision. Homepage examples are explicitly labeled as demos.
-- Dynamic wrapped COOK discovery through Cookiescan's canonical asset registry.
-- Registry outages are reported separately from RPC health. Unsigned preparation stays disabled when protocol or network verification fails.
-- Frontend PDA derivation and unsigned instruction builders for every current protocol instruction.
-- Verified live-market discovery and dynamic account detail pages, separate from demo prices. Unknown question text is never presented as verified.
-- Exact decimal/base-unit parsing without floating-point rounding.
-- Complete-set transaction assembly with idempotent associated-account setup and explicit native wrapping.
-- Unsigned deposit, merge, and redemption simulation at `POST /api/positions/prepare`. Deposit terms must match the immutable on-chain hashes. No signing or broadcasting endpoint exists.
-- A curated [public market terms registry](docs/market-terms-publication.md) stored in Git, with draft JSON export and verification of published text against the exact market, network, program, and immutable hashes.
-- Seller ask escrow with atomic partial fills, cumulative fees, maximum-debit protection, and maker-only cancellation. Client builders and strict order/escrow verification support read-only discovery at `/api/protocol?asks=<market-address>`. Validator tests execute the builders against the contract; this is not yet an app trading flow.
-- Seller-order review on verified market pages, backed by unsigned contract simulation at `POST /api/orders/prepare`. Preparation assembles associated-account setup, exact quoted purchase debits, optional native wrapping, and cancellation. It never signs or broadcasts; validator integration tests execute the same assembly with disposable wallets.
+The goal is to make prediction markets feel understandable to ordinary users. People see the question, current odds, maximum trade, deadline, position, and possible payout without needing to understand the AMM calculations behind the market.
 
-## Run locally
+## What the product does
+
+- Creates BTC and ETH price markets with an exact UTC settlement time.
+- Locks real COOK collateral in the CookieMarkets program on Cookie Chain.
+- Lets a creator choose the starting YES and NO percentages and provide at least 100 COOK of liquidity.
+- Lets traders buy whole YES or NO shares through Nightly.
+- Limits each transaction to 1% of the current pool so a single trade cannot move the market too aggressively.
+- Recalculates the displayed odds after every trade.
+- Records a 1% creator fee and releases it as part of the creator’s final settlement instead of disturbing the pool after every purchase.
+- Resolves supported price markets from the committed Coinbase one-minute candle source.
+- Lets winning shares claim 1 COOK each after a verified result.
+- Returns temporary wrapped native COOK to normal native COOK during claims.
+- Shows connected-wallet positions, locked creator liquidity, claimable COOK, and the three latest transactions.
+- Refunds supported positions when a market is finalized as Invalid instead of burning the remaining collateral.
+
+The deployed program ID is:
+
+```text
+BNqof3tMVwNd7rthycJTtXkvbGtopihvL9gpeoSk8WaR
+```
+
+You can inspect it and every market transaction on [Cookiescan](https://cookiescan.io).
+
+## Why this helps Cookie Chain
+
+CookieMarkets gives COOK an additional native use beyond holding or transferring it. Markets create recurring on-chain activity through market creation, liquidity deposits, trades, settlement, and claims. They also demonstrate that Cookie Chain can support a complete consumer application with wallet signing, token custody, deterministic program accounts, public price evidence, and an interface that hides blockchain complexity from the user.
+
+For the network, the project can become:
+
+- A visible consumer use case for COOK.
+- A source of repeat wallet and transaction activity.
+- A reusable market primitive for communities, creators, and other Cookie Chain applications.
+- A foundation for richer markets based on crypto, ecosystem milestones, governance, and verified external events.
+
+## Run it locally
+
+Requirements:
+
+- Node.js 22 or newer.
+- npm.
+- The Nightly browser extension.
+- A Nightly wallet funded with COOK on Cookie Chain.
+
+Install and start the application:
 
 ```bash
+git clone https://github.com/DrEsmaily/cookie-markets.git
+cd cookie-markets
 npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`.
+Open [http://localhost:3000](http://localhost:3000).
 
-## Cookie Chain setup
+In Nightly, select or add Cookie Chain with:
 
-In Nightly, add a custom SVM network with:
+```text
+RPC: https://rpc.cookiescan.io
+WebSocket: wss://wss.cookiescan.io
+Genesis hash: 9wDaBRDgArEUpvhHxGguNkwozsZh4UpGZB9o2EoEcBB2
+```
 
-- RPC: `https://rpc.cookiescan.io`
-- WebSocket: `wss://wss.cookiescan.io`
-- Genesis hash: `9wDaBRDgArEUpvhHxGguNkwozsZh4UpGZB9o2EoEcBB2`
+Connect Nightly from the top-right of CookieMarkets. The application checks the network before preparing a transaction, and Nightly shows the final transaction for approval.
 
-The configuration is based on the current [Cookie Chain developer docs](https://docs.cookiechain.wtf/developer-guide) and [Nightly network-change docs](https://docs.nightly.app/docs/solana/solana/change_network/). Verify network details in Nightly before approving any future request.
+## Using CookieMarkets
 
-## On-chain program
+### Create a market
 
-The contract lives in `programs/cookie_markets`. Its market PDA controls a collateral vault and the YES/NO share mints. Splitting one collateral unit produces one unit of each share; merging equal shares returns the collateral while the market remains unresolved. After closing, the designated resolver proposes an evidence-backed outcome, anyone can challenge during the configured window, and finalized winning shares can redeem collateral.
+1. Select BTC or ETH.
+2. Choose whether the question asks if the price will be above or under a target.
+3. Enter the USD target and exact date and time.
+4. Deposit at least 100 COOK as starting liquidity.
+5. Choose the opening YES percentage; NO is calculated automatically.
+6. Review the generated question and settlement rules.
+7. Approve the real market transaction once in Nightly.
 
-Run its unit tests with:
+### Trade a market
+
+1. Open a live market.
+2. Choose YES or NO.
+3. Enter a whole number of shares within the displayed per-trade limit.
+4. Review the cost, creator fee, total payment, and winning payout.
+5. Approve the transaction in Nightly.
+
+One winning share claims 1 COOK. The amount paid for that share depends on the current market odds. For example, paying about 0.20 COOK for one YES share can return 1 COOK if YES wins. The claim transaction can make the wallet’s native balance rise by slightly more than the payout when Nightly also closes a temporary wrapped-COOK account and returns its rent deposit.
+
+### Settlement and claims
+
+Trading closes at the displayed UTC deadline. The resolver verifies the committed Coinbase price observation and finalizes YES, NO, or Invalid. Winning users can then claim, and the creator can claim the remaining settlement value and accumulated creator fees. No unresolved pool collateral is intentionally burned.
+
+## Project structure
+
+- `app/` — Next.js pages and server routes.
+- `components/` — wallet, market, trading, creation, and status interfaces.
+- `lib/` — Cookie Chain configuration, account decoding, instruction building, market terms, AMM math, and transaction preparation.
+- `programs/cookie_markets/` — the Rust program deployed to Cookie Chain.
+- `scripts/market-keeper.mjs` — automatic market settlement worker.
+- `tests/` — client, pricing, transaction, and validator integration tests.
+- `docs/` — protocol design, release, market terms, and operational notes.
+
+## Validation
+
+Run the frontend checks with:
+
+```bash
+npm run lint
+npm test
+npm run build
+```
+
+Run the Rust unit tests with:
 
 ```bash
 cargo test --workspace
 ```
 
-GitHub Actions runs the Rust tests, formatting check, frontend instruction/account tests (`npm test`), lint, and production build for every push and pull request.
+GitHub Actions repeats linting, TypeScript tests, the production build, Rust formatting and tests, the deployable SBF build, and transaction tests against a disposable local validator. Successful SBF jobs publish only the program binary—never a wallet keypair.
 
-A separate Linux job uses Agave 4.2.2 to build the real SBF deploy target with locked dependencies. Successful runs publish only `cookie_markets.so` as the `cookie-markets-sbf` artifact, not keypairs. This job does not deploy to Cookie Chain or use a real funded wallet. A passing SBF build is necessary but does not establish production readiness; transaction-level tests and security review are still required.
+## Current status
 
-After compilation, CI loads the program into a disposable local validator and runs `tests/program-transactions.cjs`. The harness uses generated in-memory test accounts and local airdrops, never a user wallet or Cookie Chain funds. It covers initialization, outcome mint/vault creation, signer and transition checks, collateral deposits, partial/full merges, YES/NO settlement, public challenges, challenged Invalid settlement, exact half refunds, losing shares, and repeated-redemption rejection. It also submits a deliberately failing merge after its first token burn and verifies that the entire transaction rolls back. The harness executes the frontend complete-set builders against the contract and tests native wrapping/unwrapping. These are integration tests, not an independent security audit.
+The MVP uses a real deployed Cookie Chain program and real COOK collateral. It is suitable for controlled testing and demonstrations, but it has not received an independent external security audit. Users should test with limited amounts until an audit and longer production monitoring are complete.
 
-The checked-in program ID `BNqof3tMVwNd7rthycJTtXkvbGtopihvL9gpeoSk8WaR` is deployed and executable on Cookie Chain. Its upgrade authority is the designated Nightly wallet `DQUuBvSGVAnqcXAJs2ZEcXtkXqMcMEX7JxqcZ2Yki86a`. Protocol configuration and funded markets are separate on-chain steps.
+The application is server-backed and cannot be hosted as a static GitHub Pages site. The complete source, build history, and usage instructions are live in this GitHub repository. A public web deployment should use a Node.js host with persistent storage for published market terms and a continuously running resolver worker.
 
-Invalid-market redemptions require an even number of share base units so half-value payouts are exact. Odd amounts are rejected before burning shares; a single leftover base unit cannot be redeemed alone. Contract tests also verify the serialized market layout used by discovery.
+## Planned improvements
 
-The frontend builders in `lib/cookie-markets-program.ts` prepare deterministic addresses and transaction instructions, but they deliberately do not request wallet signatures or submit transactions.
+Near-term work:
 
-The create-market form validates a draft, hashes its public rules, derives all market accounts, and displays unsigned instruction data. Sources must be single-line text to keep the source/rules commitment unambiguous. It stops before signing or submission.
+- Independent smart-contract and economic security review.
+- Public production hosting with monitoring and backed-up persistent market-term storage.
+- More robust resolver redundancy, retries, and operator alerts.
+- Clearer portfolio performance, trade history, and settlement receipts.
+- Accessibility testing across browsers and mobile devices.
+- Better market discovery, search, and filters as activity grows.
 
-Live account pages allow simulation of unsigned position transactions. Nightly must report the exact Cookie Chain genesis hash; the backend separately verifies RPC genesis, executable program, config layout/PDA, collateral mint, and market custody PDAs. Simulations do not change balances. Withdrawals/redemptions return wrapped collateral; native unwrapping is always a separate explicit action. Network-fee estimates exclude account-creation rent.
+Future possibilities:
 
-## Next protocol milestone
+- Additional trusted price sources and assets.
+- Cookie Chain ecosystem and governance markets.
+- Liquidity-management tools for market creators.
+- Share selling and deeper secondary-market functionality.
+- Public APIs and embeddable market cards for other applications.
+- Community moderation and decentralized resolver designs.
 
-See [price-market MVP scope and setup](docs/price-market-mvp.md), [release checklist](docs/release-checklist.md), and [trading venue status](docs/trading-venues.md). Ask/bid discovery and unsigned review, verified wallet holdings snapshots, BTC/ETH templates, public Coinbase candle evidence collection/export, and optional persistent public terms publication are implemented. Configure the non-secret `COOKIE_MARKETS_TERMS_DIR` as an absolute backed-up persistent directory to enable terms writes; ephemeral serverless filesystems are not supported. Evidence collection verifies the actual market hashes and schedule but does not publish evidence or propose an outcome. The program is live; protocol initialization still requires an explicit Nightly review and signature. Signed trading, market submission, durable evidence publication, independent security review, and operational safeguards remain necessary. AMM pools and automatic matching are deferred for the direct-fill MVP, not prerequisites for it.
+## Safety
 
-No wallet secrets, private keys, or deployment configuration are included in this repository.
+No private keys, seed phrases, wallet secrets, or funded deployment credentials belong in this repository. Never paste them into an issue, pull request, environment file, or support message.
