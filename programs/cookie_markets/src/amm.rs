@@ -290,7 +290,10 @@ mod tests {
     #[test]
     fn minimum_liquidity_supports_one_percent_whole_share_trades() {
         assert_eq!(minimum_initial_liquidity(9).unwrap(), 100_000_000_000);
-        assert_eq!(maximum_trade(minimum_initial_liquidity(9).unwrap()).unwrap(), 1_000_000_000);
+        assert_eq!(
+            maximum_trade(minimum_initial_liquidity(9).unwrap()).unwrap(),
+            1_000_000_000
+        );
     }
 
     #[test]
