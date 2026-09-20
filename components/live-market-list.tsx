@@ -6,6 +6,7 @@ import type { VerifiedMarket } from "@/lib/protocol-accounts";
 import { formatTokenAmount } from "@/lib/token-amounts";
 import type { MarketTerms } from "@/lib/market-terms";
 import { formatUtcTimestamp, marketLifecycle } from "@/lib/market-lifecycle";
+import { UI_LAUNCH_UNIX_SECONDS } from "@/lib/ui-launch";
 
 type MarketResponse = { deployed: boolean; markets?: (VerifiedMarket & { terms?: MarketTerms; termsError?: string; yesPercent?: number; liquidity?: string })[]; collateralDecimals?: number; error?: string };
 
@@ -30,12 +31,12 @@ export function LiveMarketList() {
   return (
     <section className="market-section" id="live-markets">
       <div className="section-heading"><div><p className="eyebrow">VERIFIED ON-CHAIN ACCOUNTS</p><h2>Live markets</h2></div></div>
-      {!result ? <p role="status">Checking Cookie Chain…</p> : result.error ? <p role="alert">{result.error}</p> : !result.deployed ? <p>The protocol has not been deployed. No real markets or prices are available yet.</p> : !result.markets?.length ? <p>No markets have been created on this protocol yet.</p> : (
-        <div className="market-grid">{[...result.markets].sort((first, second) => BigInt(first.createdAt) > BigInt(second.createdAt) ? -1 : 1).map((market) => {
+      {!result ? <p role="status">Checking Cookie Chain…</p> : result.error ? <p role="alert">{result.error}</p> : !result.deployed ? <p>The protocol has not been deployed. No real markets or prices are available yet.</p> : !result.markets?.some((market) => BigInt(market.createdAt) >= UI_LAUNCH_UNIX_SECONDS) ? <p>No new markets yet. Create the first market for the refreshed launch.</p> : (
+        <div className="market-grid">{[...result.markets].filter((market) => BigInt(market.createdAt) >= UI_LAUNCH_UNIX_SECONDS).sort((first, second) => BigInt(first.createdAt) > BigInt(second.createdAt) ? -1 : 1).map((market) => {
           const lifecycle = marketLifecycle(market);
           return <Link className={`market-card stage-${lifecycle.key}`} href={`/markets/${market.address}`} key={market.address}>
             <div className="market-meta"><span>Crypto</span><span>{formatUtcTimestamp(market.closesAt)}</span></div>
-            <h2>{market.terms?.question ?? `Market ${market.address.slice(0, 6)}…${market.address.slice(-4)}`}</h2>
+            <h2>{market.terms?.question ?? "Verified crypto price market"}</h2>
             <div className="market-prices" aria-label={`Yes chance: ${market.yesPercent ?? 50}%`}>
               <div className="price-track"><div className="price-fill" style={{ width: `${market.yesPercent ?? 50}%` }} /></div>
               <strong>{(market.yesPercent ?? 50).toFixed(1)}% Yes</strong>

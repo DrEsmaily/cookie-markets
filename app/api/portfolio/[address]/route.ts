@@ -7,6 +7,7 @@ import { readVerifiedPosition, readVerifiedProtocol } from "@/lib/protocol-reade
 import { creatorClaimable, decodeAmmPool, deriveAmmAddresses } from "@/lib/amm-pool";
 import { readPublishedMarketTerms } from "@/lib/published-market-terms";
 import { verifyPublishedMarketTerms } from "@/lib/market-terms-record";
+import { UI_LAUNCH_UNIX_SECONDS } from "@/lib/ui-launch";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +47,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ address: s
       } catch { /* verified address remains usable */ }
       return { market: market.address, question, status: market.status, outcome: market.outcome, yes: yes.toString(), no: no.toString(), creatorLiquidity: creatorLiquidity.toString(), claimable: claimable.toString(), createdAt: market.createdAt };
     }));
-    const visible = positions.filter((position) => BigInt(position.yes) > BigInt(0) || BigInt(position.no) > BigInt(0) || BigInt(position.creatorLiquidity) > BigInt(0) || BigInt(position.claimable) > BigInt(0));
+    const visible = positions.filter((position) => BigInt(position.createdAt) >= UI_LAUNCH_UNIX_SECONDS && (position.status !== "resolved" || BigInt(position.claimable) > BigInt(0)) && (BigInt(position.yes) > BigInt(0) || BigInt(position.no) > BigInt(0) || BigInt(position.creatorLiquidity) > BigInt(0) || BigInt(position.claimable) > BigInt(0)));
     visible.sort((first, second) => Number(BigInt(second.createdAt) - BigInt(first.createdAt)));
     return NextResponse.json({ decimals: protocol.collateralDecimals, positions: visible });
   } catch (error) {

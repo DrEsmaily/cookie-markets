@@ -7,7 +7,7 @@ export function MarketCard({ market }: { market: PredictionMarket }) {
     <Link className="market-card" href={`/markets/${market.id}`}>
       <div className="market-meta">
         <span>{market.category}</span>
-        <span>Closes {market.closesAt}</span>
+        <span>{market.closesAt}</span>
       </div>
       <h2>{market.question}</h2>
       <div className="market-prices" aria-label={`Yes chance: ${market.yesPrice}%`}>
@@ -16,7 +16,7 @@ export function MarketCard({ market }: { market: PredictionMarket }) {
       </div>
       <div className="market-footer">
         <span>{formatCook(market.volumeCook)} COOK volume</span>
-        <span className="status">Open</span>
+        <span className="status status-resolved">Resolved</span>
       </div>
     </Link>
   );

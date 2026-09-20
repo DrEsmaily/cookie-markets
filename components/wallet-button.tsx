@@ -6,7 +6,7 @@ import { COOKIE_CHAIN } from "@/lib/cookie-chain-config";
 import { formatTokenAmount } from "@/lib/token-amounts";
 
 export type NightlyAccount = { address: string; chains?: readonly string[] };
-type WalletActivity = { signature: string; slot: number; blockTime: number | null; status: "confirmed" | "failed" };
+type WalletActivity = { signature: string; slot: number; blockTime: number | null; status: "confirmed" | "failed"; amountBaseUnits: string };
 type PortfolioPosition = { market: string; question: string; status: string; outcome: string; yes: string; no: string; creatorLiquidity: string; claimable: string };
 type NightlyProvider = {
   solana?: {
@@ -34,7 +34,7 @@ function shortAddress(address: string) {
 
 function formatActivityTime(blockTime: number | null) {
   if (!blockTime) return "time unavailable";
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(blockTime * 1_000);
+  return new Intl.DateTimeFormat("en-GB", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" }).format(blockTime * 1_000);
 }
 
 export function WalletButton() {
@@ -118,7 +118,6 @@ export function WalletButton() {
 
   return (
     <div className="wallet-control">
-      {address && balance !== undefined ? <span className="wallet-balance">{balance.toLocaleString(undefined, { maximumFractionDigits: 4 })} COOK</span> : null}
       <button className="wallet-button" type="button" onClick={() => address ? setIsOpen((current) => !current) : void connect(false)} disabled={isConnecting} aria-expanded={address ? isOpen : undefined}>
         {address ? shortAddress(address) : isConnecting ? "Connecting…" : "Connect Nightly"}
       </button>
@@ -129,9 +128,9 @@ export function WalletButton() {
         <div><span>Creator liquidity locked</span><strong>{portfolio ? formatTokenAmount(portfolio.positions.reduce((total, item) => total + BigInt(item.status === "resolved" ? "0" : item.creatorLiquidity), BigInt(0)), portfolio.decimals) : "—"} COOK</strong></div>
         <div><span>Claimable now</span><strong>{portfolio ? formatTokenAmount(portfolio.positions.reduce((total, item) => total + BigInt(item.claimable), BigInt(0)), portfolio.decimals) : "—"} COOK</strong></div>
         <p>Your positions</p>
-        {portfolio?.positions.length ? <ul className="portfolio-list">{portfolio.positions.map((position) => <li key={position.market}><Link href={`/markets/${position.market}`}><strong>{position.question}</strong><small>YES {formatTokenAmount(BigInt(position.yes), portfolio.decimals)} · NO {formatTokenAmount(BigInt(position.no), portfolio.decimals)} · claimable {formatTokenAmount(BigInt(position.claimable), portfolio.decimals)} COOK</small></Link></li>)}</ul> : <small>No on-chain positions found.</small>}
-        <p>Recent activity</p>
-        {activity.length ? <ul>{activity.map((item) => <li key={item.signature}><span className={item.status}>{item.status}</span><a href={`${COOKIE_CHAIN.explorerUrl}/tx/${item.signature}`} target="_blank" rel="noreferrer"><strong>{item.signature.slice(0, 5)}…{item.signature.slice(-5)} ↗</strong></a><small>{formatActivityTime(item.blockTime)} · slot {item.slot.toLocaleString()}</small></li>)}</ul> : <small>No recent transactions found.</small>}
+        {portfolio?.positions.length ? <ul className="portfolio-list">{portfolio.positions.map((position) => <li key={position.market}><Link href={`/markets/${position.market}`}><strong>{position.question}</strong><small>YES {formatTokenAmount(BigInt(position.yes), portfolio.decimals)} · NO {formatTokenAmount(BigInt(position.no), portfolio.decimals)} · claimable {formatTokenAmount(BigInt(position.claimable), portfolio.decimals)} COOK</small></Link></li>)}</ul> : <small>No active or claimable positions.</small>}
+        <p>Latest activity</p>
+        {activity.length ? <ul className="activity-list">{activity.slice(0, 3).map((item) => { const amount = BigInt(item.amountBaseUnits); return <li key={item.signature}><a href={`${COOKIE_CHAIN.explorerUrl}/tx/${item.signature}`} target="_blank" rel="noreferrer"><strong className={amount >= BigInt(0) ? "amount-positive" : "amount-negative"}>{amount >= BigInt(0) ? "+" : "−"}{formatTokenAmount(amount < BigInt(0) ? -amount : amount, 9)} COOK</strong><small>{formatActivityTime(item.blockTime)} UTC</small></a></li>; })}</ul> : <small>No activity since the refreshed launch.</small>}
       </div> : null}
       {message ? <p className="wallet-message">{message}</p> : null}
     </div>
