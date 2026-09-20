@@ -1,46 +1,43 @@
 import Link from "next/link";
-import { MarketCard } from "@/components/market-card";
-import { WalletButton } from "@/components/wallet-button";
-import { NetworkStatus } from "@/components/network-status";
 import { LiveMarketList } from "@/components/live-market-list";
-import { COOKIE_CHAIN } from "@/lib/cookie-chain-config";
-import { featuredMarkets } from "@/lib/markets";
+import { LiveAssetPrices } from "@/components/live-asset-prices";
+import { SiteHeader } from "@/components/site-header";
+import { SiteFooter } from "@/components/site-footer";
 
 export default function Home() {
   return (
     <main>
-      <nav>
-        <Link className="brand" href="/">cookie<span>markets</span></Link>
-        <Link className="create-link" href="/create">＋ Create market</Link>
-        <div className="header-actions"><NetworkStatus /><WalletButton /></div>
-      </nav>
+      <SiteHeader />
 
       <section className="hero">
-        <p className="eyebrow">PREDICTION MARKETS ON COOKIE CHAIN</p>
-        <h1>Trade what the internet<br />thinks happens next.</h1>
-        <p className="lede">Simple, transparent markets settled in COOK. Connect your Nightly wallet to follow the action.</p>
-        <div className="hero-actions">
-          <a className="primary-action" href="#markets">Explore markets <span>↓</span></a>
-          <a className="text-action" href={COOKIE_CHAIN.explorerUrl} target="_blank" rel="noreferrer">Explore Cookie Chain ↗</a>
+        <div className="hero-copy">
+          <p className="eyebrow">THE CRYPTO PRICE DESK</p>
+          <h1>Trade the next move.</h1>
+          <p className="lede">Take a clear YES or NO position on where Bitcoin and Ethereum will be—then settle transparently on Cookie Chain.</p>
+          <div className="hero-actions">
+            <a className="primary-action" href="#live-markets">Browse markets <span>↘</span></a>
+            <Link className="text-action" href="/create">Launch your own market</Link>
+          </div>
         </div>
+        <aside className="hero-board">
+          <div className="board-heading"><span>Market reference</span><strong>Live</strong></div>
+          <LiveAssetPrices />
+          <div className="board-facts"><div><strong>1 COOK</strong><span>per winning share</span></div><div><strong>1%</strong><span>creator fee</span></div><div><strong>24/7</strong><span>on-chain markets</span></div></div>
+          <p>Coinbase reference prices update automatically. Market terms and settlement evidence remain verifiable on-chain.</p>
+        </aside>
       </section>
 
       <div id="markets"><LiveMarketList /></div>
-      <section className="market-section">
-        <div className="section-heading">
-          <div><p className="eyebrow">RESOLVED PRICE MARKETS</p><h2>Recent BTC and ETH outcomes</h2></div>
-        </div>
-        <div className="market-grid">{featuredMarkets.map((market) => <MarketCard key={market.id} market={market} />)}</div>
-      </section>
 
       <section className="how-it-works">
         <p className="eyebrow">HOW IT WORKS</p>
         <div className="steps">
-          <div><span>01</span><h3>Pick a market</h3><p>Find a question with an outcome you have a view on.</p></div>
-          <div><span>02</span><h3>Take a position</h3><p>When trading opens, buy Yes or No shares with COOK.</p></div>
-          <div><span>03</span><h3>Settle transparently</h3><p>Resolved markets pay winning shares according to their rules.</p></div>
+          <div><span>01</span><h3>Choose your view</h3><p>Pick YES or NO on a clearly defined BTC or ETH price question.</p></div>
+          <div><span>02</span><h3>Trade with COOK</h3><p>See the exact price and maximum trade before approving in Nightly.</p></div>
+          <div><span>03</span><h3>Claim the result</h3><p>Markets settle automatically from verified Coinbase minute data.</p></div>
         </div>
       </section>
+      <SiteFooter />
     </main>
   );
 }

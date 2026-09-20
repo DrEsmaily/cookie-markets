@@ -1,6 +1,7 @@
-import Link from "next/link";
 import { ResolverSetup } from "@/components/resolver-setup";
+import { SiteHeader } from "@/components/site-header";
+import { SiteFooter } from "@/components/site-footer";
 
 export default function ResolverAdminPage() {
-  return <main><nav><Link className="brand" href="/">cookie<span>markets</span></Link></nav><ResolverSetup /></main>;
+  return <main><SiteHeader backHref="/" /><ResolverSetup /><SiteFooter /></main>;
 }

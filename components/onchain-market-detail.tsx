@@ -8,7 +8,6 @@ import { formatTokenAmount } from "@/lib/token-amounts";
 import { AmmTradePanel } from "@/components/amm-trade-panel";
 import { verifyPublishedMarketTerms, type MarketTermsRecord } from "@/lib/market-terms-record";
 import { readPublishedMarketTerms } from "@/lib/published-market-terms";
-import { PriceEvidenceReview } from "@/components/price-evidence-review";
 import { formatMarketText, formatUtcTimestamp, marketLifecycle } from "@/lib/market-lifecycle";
 
 export async function OnchainMarketDetail({ address }: { address: string }) {
@@ -29,26 +28,20 @@ export async function OnchainMarketDetail({ address }: { address: string }) {
       termsError = error instanceof Error ? error.message : "Published terms verification failed.";
     }
     return (
-      <section className="resolution-card">
+      <section className="market-page">
         <p className="eyebrow">VERIFIED COOKIE CHAIN MARKET</p>
         <div className={`market-stage stage-${lifecycle.key}`}><strong>{lifecycle.label}</strong><span>{lifecycle.description}</span></div>
-        <h2>{terms ? formatMarketText(terms.question) : "On-chain market account"}</h2>
-        {terms ? <><p>Published question and rules match this market’s immutable on-chain hashes.</p><h3>Resolution source</h3><p>{formatMarketText(terms.resolutionSource)}</p><h3>Settlement rules</h3><p style={{ whiteSpace: "pre-wrap" }}>{formatMarketText(terms.resolutionRules)}</p></> : termsError ? <p role="alert">{termsError} Deposits are disabled. Withdrawals and redemption remain available for simulation.</p> : <p>No readable terms have been published in the registry. Supply the exact question and settlement rules below to verify them before preparing a deposit.</p>}
-        <dl>
-          <div><dt>Market</dt><dd><a href={`${COOKIE_CHAIN.explorerUrl}/address/${market.address}`} target="_blank" rel="noreferrer">{market.address} ↗</a></dd></div>
-          <div><dt>Creator</dt><dd>{market.creator}</dd></div>
-          <div><dt>Resolver</dt><dd>{market.resolver}</dd></div>
-          <div><dt>Collateral mint</dt><dd>{market.collateralMint}</dd></div>
-          <div><dt>Question hash</dt><dd>{market.questionHash}</dd></div>
-          <div><dt>Rules hash</dt><dd>{market.rulesHash}</dd></div>
-          <div><dt>Trading closes</dt><dd>{formatUtcTimestamp(market.closesAt)}</dd></div>
-          <div><dt>Resolution begins</dt><dd>{formatUtcTimestamp(market.resolveAfter)}</dd></div>
-          <div><dt>Final outcome</dt><dd>{market.outcome}</dd></div>
-          <div><dt>Outstanding collateral</dt><dd>{formatTokenAmount(BigInt(market.outstandingSets), protocol.collateralDecimals)} token units</dd></div>
-        </dl>
-        {!lifecycle.tradingOpen && market.status === "open" ? <p className="form-error" role="alert">Trading has closed at the displayed UTC deadline. No new purchase can be submitted.</p> : null}
-        {!termsError ? <AmmTradePanel key={market.address} market={market.address} /> : null}
-        <PriceEvidenceReview key={`evidence-${market.address}`} market={market.address} settlesAt={new Date(Number(market.closesAt) * 1000).toISOString()} />
+        <div className="market-page-grid"><div className="market-story">
+          <h1>{terms ? formatMarketText(terms.question) : "On-chain market account"}</h1>
+          <p className="market-trust">{terms ? "Question and settlement rules are verified against immutable on-chain hashes." : termsError ? `${termsError} Deposits are disabled.` : "Readable public terms are unavailable for this market."}</p>
+          <div className="market-key-stats"><div><span>Trading deadline</span><strong>{formatUtcTimestamp(market.closesAt)}</strong></div><div><span>Current result</span><strong>{market.outcome === "unresolved" ? "Awaiting result" : market.outcome.toUpperCase()}</strong></div><div><span>Collateral locked</span><strong>{formatTokenAmount(BigInt(market.outstandingSets), protocol.collateralDecimals)} COOK</strong></div></div>
+          {terms ? <div className="market-rules"><h2>How this market settles</h2><div><span>Price source</span><p>{formatMarketText(terms.resolutionSource)}</p></div><div><span>Exact rules</span><p>{formatMarketText(terms.resolutionRules)}</p></div></div> : null}
+          <details className="technical-details"><summary>On-chain verification details</summary><dl>
+            <div><dt>Market</dt><dd><a href={`${COOKIE_CHAIN.explorerUrl}/address/${market.address}`} target="_blank" rel="noreferrer">{market.address} ↗</a></dd></div>
+            <div><dt>Creator</dt><dd>{market.creator}</dd></div><div><dt>Resolver</dt><dd>{market.resolver}</dd></div><div><dt>Collateral mint</dt><dd>{market.collateralMint}</dd></div><div><dt>Question hash</dt><dd>{market.questionHash}</dd></div><div><dt>Rules hash</dt><dd>{market.rulesHash}</dd></div><div><dt>Resolution begins</dt><dd>{formatUtcTimestamp(market.resolveAfter)}</dd></div>
+          </dl></details>
+          {!lifecycle.tradingOpen && market.status === "open" ? <p className="form-error" role="alert">Trading has closed. The verified result is being prepared.</p> : null}
+        </div><aside className="market-trade-column">{!termsError ? <AmmTradePanel key={market.address} market={market.address} /> : <div className="amm-panel"><p role="alert">Trading is unavailable because the public terms could not be verified.</p></div>}</aside></div>
       </section>
     );
   } catch (error) {

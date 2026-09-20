@@ -95,7 +95,9 @@ export function AmmTradePanel({ market }: { market: string }) {
       if (!response.ok) throw new Error(prepared.error ?? "The transaction could not be prepared.");
       setMessage("Simulation passed. Approve once in Nightly.");
       const signature = await submitPreparedTransaction(prepared);
-      setMessage(`Confirmed on Cookie Chain: ${signature.slice(0, 8)}…`);
+      setMessage(claimingPosition
+        ? `Claim confirmed: ${display(claimAmount.toString(), pool.decimals)} COOK. Your wallet may show a slightly larger native-balance increase when Nightly also returns temporary token-account rent.`
+        : `Confirmed on Cookie Chain: ${signature.slice(0, 8)}…`);
       setAmount("");
       await refresh();
       await refreshPosition(address);
@@ -114,12 +116,15 @@ export function AmmTradePanel({ market }: { market: string }) {
   const walletClaimable = pool.outcome === "yes" ? yesHeld : pool.outcome === "no" ? noHeld : pool.outcome === "invalid" ? (yesHeld + noHeld) / BigInt(2) : BigInt(0);
   const yesCanClaim = pool.status === "resolved" && yesHeld > BigInt(0) && (pool.outcome === "yes" || pool.outcome === "invalid");
   const noCanClaim = pool.status === "resolved" && noHeld > BigInt(0) && (pool.outcome === "no" || pool.outcome === "invalid");
+  const leadingSide = pool.status === "resolved" && pool.outcome !== "invalid" && pool.outcome !== "unresolved"
+    ? pool.outcome
+    : pool.yesPercent >= pool.noPercent ? "yes" : "no";
 
   return (
     <div className="amm-panel">
       <div className="amm-odds" aria-label="Current market odds">
-        <button type="button" className={side === "yes" ? "selected yes" : "yes"} onClick={() => setSide("yes")}><span>YES</span><strong>{pool.yesPercent.toFixed(1)}%</strong></button>
-        <button type="button" className={side === "no" ? "selected no" : "no"} onClick={() => setSide("no")}><span>NO</span><strong>{pool.noPercent.toFixed(1)}%</strong></button>
+        <button type="button" disabled={!trading} className={`yes ${side === "yes" && trading ? "selected" : ""} ${leadingSide === "yes" ? "leading" : "trailing"}`} onClick={() => setSide("yes")}><span>YES</span><strong>{pool.yesPercent.toFixed(1)}%</strong></button>
+        <button type="button" disabled={!trading} className={`no ${side === "no" && trading ? "selected" : ""} ${leadingSide === "no" ? "leading" : "trailing"}`} onClick={() => setSide("no")}><span>NO</span><strong>{pool.noPercent.toFixed(1)}%</strong></button>
       </div>
       <div className="wallet-position"><span>Your YES <strong>{display(yesHeld.toString(), pool.decimals)}</strong></span><span>Your NO <strong>{display(noHeld.toString(), pool.decimals)}</strong></span><span>Claimable now <strong>{display(walletClaimable.toString(), pool.decimals)} COOK</strong></span></div>
       {trading ? <>

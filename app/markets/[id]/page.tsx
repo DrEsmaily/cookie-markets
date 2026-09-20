@@ -1,8 +1,9 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { featuredMarkets, formatCook, getMarket } from "@/lib/markets";
 import { PublicKey } from "@solana/web3.js";
 import { OnchainMarketDetail } from "@/components/onchain-market-detail";
+import { SiteHeader } from "@/components/site-header";
+import { SiteFooter } from "@/components/site-footer";
 
 export const dynamic = "force-dynamic";
 
@@ -15,12 +16,12 @@ export default async function MarketPage({ params }: { params: Promise<{ id: str
   const market = getMarket(id);
   if (!market) {
     try { new PublicKey(id); } catch { notFound(); }
-    return <main><nav><Link className="brand" href="/">cookie<span>markets</span></Link><Link className="back-link" href="/">← All markets</Link></nav><OnchainMarketDetail address={id} /></main>;
+    return <main><SiteHeader backHref="/" /><OnchainMarketDetail address={id} /><SiteFooter /></main>;
   }
 
   return (
     <main>
-      <nav><Link className="brand" href="/">cookie<span>markets</span></Link><Link className="back-link" href="/">← All markets</Link></nav>
+      <SiteHeader backHref="/" />
       <section className="market-detail">
         <div className="detail-main">
           <p className="eyebrow">{market.category} · RESOLVED EXAMPLE</p>
@@ -35,6 +36,7 @@ export default async function MarketPage({ params }: { params: Promise<{ id: str
         </aside>
       </section>
       <section className="resolution-card"><p className="eyebrow">RESOLUTION</p><h2>How this market settled</h2><dl><div><dt>Source</dt><dd>{market.resolutionSource}</dd></div><div><dt>Rules</dt><dd>{market.resolutionRules}</dd></div><div><dt>Finalization</dt><dd>Finalized immediately after verified evidence was available.</dd></div></dl></section>
+      <SiteFooter />
     </main>
   );
 }
