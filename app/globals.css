@@ -131,15 +131,18 @@ button:disabled { cursor: not-allowed; }
 .amm-panel > .primary-action { width: 100%; margin-top: 10px; border: 0; cursor: pointer; }
 .amm-message { padding: 12px; border-radius: 10px; background: #f2f6e4; color: #405400; }
 
-.site-footer { display: grid; grid-template-columns: 1fr; gap: 22px; align-items: start; margin-top: 72px; padding: 38px 0 12px; border-top: 1px solid var(--line); text-align: center; }
+.site-footer { display: grid; grid-template-columns: 1fr; gap: 22px; align-items: start; margin-top: 72px; padding: 38px 0 12px; text-align: center; }
 .site-footer > div:first-child { justify-self: center; }
 .site-footer .brand { margin: 0; justify-content: center; }.site-footer p { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
 .footer-links { display: flex; justify-content: center; gap: 24px; color: var(--muted); font-size: 12px; }
 .footer-links a:hover { color: var(--ink); }
-.site-footer .copyright { padding-top: 22px; border-top: 1px solid var(--line); text-align: center; }
+.site-footer .copyright { padding-top: 22px; text-align: center; }
 .route-loading { position: fixed; z-index: 100; right: 18px; bottom: 18px; display: flex; align-items: center; gap: 10px; padding: 12px 15px; border-radius: 999px; background: #171719; color: #fff; box-shadow: 0 12px 35px rgba(0,0,0,.2); font-size: 12px; }
 .route-loading span { width: 8px; height: 8px; border-radius: 50%; background: var(--lime); animation: route-pulse .8s infinite alternate; }
+.navigation-feedback { position: fixed; z-index: 110; inset: 0; display: grid; place-content: center; gap: 12px; background: rgba(248,248,244,.78); color: var(--ink); font-size: 13px; font-weight: 800; text-align: center; backdrop-filter: blur(3px); }
+.navigation-feedback span { width: 34px; height: 34px; margin: 0 auto; border: 3px solid #dadbd3; border-top-color: #719000; border-radius: 50%; animation: navigation-spin .65s linear infinite; }
 @keyframes route-pulse { to { opacity: .3; transform: scale(.7); } }
+@keyframes navigation-spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 900px) {
   .hero { grid-template-columns: 1fr; gap: 42px; }

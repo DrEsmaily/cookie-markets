@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { NavigationFeedback } from "@/components/navigation-feedback";
 
 export const metadata: Metadata = {
   title: "CookieMarkets",
@@ -9,7 +10,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>{children}<NavigationFeedback /></body>
     </html>
   );
 }
