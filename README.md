@@ -18,7 +18,7 @@ For judges, the project demonstrates the complete journey from wallet to protoco
 - Transparent rules, exact UTC deadlines, and a committed public price source for supported BTC and ETH markets.
 - A focused economic design: creator-provided liquidity, a protected 1% maximum trade size, and deferred creator fees that preserve clear user-facing numbers.
 
-The MVP is deliberately narrow so it can be tested honestly with real COOK today. Its long-term opportunity is much larger: a reusable market layer for the Cookie Chain ecosystem, covering community forecasts, ecosystem milestones, governance questions, creator markets, and other objectively verifiable events. CookieMarkets is designed to grow from a polished price-market MVP into an everyday prediction and coordination tool for the network.
+The MVP is deliberately narrow so it can be tested honestly with real COOK today. Its long-term opportunity is much larger: a reusable market layer for the Cookie Chain ecosystem, covering crypto prices, community forecasts, ecosystem milestones, governance questions, creator markets, sports, culture, and other objectively verifiable events. CookieMarkets is designed to grow from a polished price-market MVP into an everyday prediction and coordination tool for the network.
 
 ## What the product does
 
