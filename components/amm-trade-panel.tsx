@@ -88,7 +88,7 @@ export function AmmTradePanel({ market }: { market: string }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(claimingPosition
-          ? { action: "redeem", market, user: address, side: claimSide, amount: display(claimAmount.toString(), pool.decimals), wrapNative: true }
+          ? { action: "redeem", market, user: address, side: claimSide, amount: display(claimAmount.toString(), pool.decimals) }
           : { action, market, user: address, side, amount }),
       });
       const prepared = await response.json() as Prepared & { error?: string };

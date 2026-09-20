@@ -10,6 +10,7 @@ import { COOKIE_MARKETS_PROGRAM_ID } from "./cookie-markets-program";
 export const publishedMarketTerms: readonly MarketTermsRecord[] = [];
 
 function storageDirectory(directory = process.env.COOKIE_MARKETS_TERMS_DIR) {
+  if (!directory && process.env.NODE_ENV !== "production") directory = join(process.cwd(), ".local-data", "market-terms");
   if (!directory) return undefined;
   if (!isAbsolute(directory)) throw new Error("COOKIE_MARKETS_TERMS_DIR must be an absolute persistent directory.");
   return join(directory, COOKIE_CHAIN.genesisHash, COOKIE_MARKETS_PROGRAM_ID.toBase58());
