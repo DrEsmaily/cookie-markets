@@ -150,7 +150,7 @@ export function MarketDraftForm() {
 
   async function createMarket() {
     if (!preview) return;
-    setIsPreparing(true); setPrepareError(undefined); setSubmissionMessage(undefined);
+    setIsPreparing(true); setPrepareError(undefined); setSubmissionMessage("Approve the transaction in Nightly. Your market will open automatically after confirmation.");
     try {
       const wallet = window.nightly?.solana;
       const connect = wallet?.features?.["standard:connect"];
@@ -176,20 +176,26 @@ export function MarketDraftForm() {
       const chain = account.chains?.find((value) => value.startsWith("solana:")) as `${string}:${string}` | undefined;
       const sendFeature = wallet.features?.["solana:signAndSendTransaction"] ?? wallet.features?.["standard:signAndSendTransaction"];
       const signFeature = wallet.features?.["solana:signTransaction"] ?? wallet.features?.["standard:signTransaction"];
-      if (sendFeature && chain) {
-        const result = await sendFeature.signAndSendTransaction({ account, transaction: serialized, chain, options: { commitment: "confirmed", preflightCommitment: "confirmed", maxRetries: 3 } });
-        if (!result[0]?.signature?.length) throw new Error("Nightly did not return a transaction signature.");
-      } else if (signFeature) {
+      if (signFeature) {
         const result = await signFeature.signTransaction({ account, transaction: serialized, chain, options: { preflightCommitment: "confirmed" } });
         const signed = result[0]?.signedTransaction;
         if (!signed?.length) throw new Error("Nightly did not return a signed transaction.");
+        setSubmissionMessage("Signed successfully. Sending the market transaction to Cookie Chain…");
         await cookieChainConnection.sendRawTransaction(signed, { preflightCommitment: "confirmed", maxRetries: 3, skipPreflight: false });
+      } else if (sendFeature && chain) {
+        const result = await sendFeature.signAndSendTransaction({ account, transaction: serialized, chain, options: { commitment: "confirmed", preflightCommitment: "confirmed", maxRetries: 3 } });
+        if (!result[0]?.signature?.length) throw new Error("Nightly did not return a transaction signature.");
       } else throw new Error("Nightly transaction signing is unavailable.");
+      setSubmissionMessage("Transaction sent. Confirming the new market on Cookie Chain…");
       await waitForMarket(preview.market);
       const publication = await fetch("/api/protocol", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ market: preview.market, question: terms.question, resolutionSource: terms.resolutionSource, resolutionRules: terms.resolutionRules }) });
       if (!publication.ok) throw new Error(`Market is live, but public terms publication failed: ${(await publication.json() as { error?: string }).error ?? "unknown error"}. Do not recreate the market.`);
-      setSubmissionMessage(`Market ${preview.market} is live, open, and publicly documented.`);
-    } catch (error) { setPrepareError(error instanceof Error ? error.message : "Market submission failed."); }
+      setSubmissionMessage("Market confirmed. Opening it now…");
+      window.location.assign(`/markets/${preview.market}`);
+    } catch (error) {
+      setSubmissionMessage(undefined);
+      setPrepareError(error instanceof Error ? error.message : "Market submission failed.");
+    }
     finally { setIsPreparing(false); }
   }
 
@@ -209,8 +215,7 @@ export function MarketDraftForm() {
       {prepareError ? <p className="form-error" role="alert">{prepareError}</p> : null}
       {isReady ? <div className="draft-ready"><strong>{formatMarketText(draft.question)}</strong><p>Settlement source: Coinbase Exchange · Collateral: COOK (wrapped automatically for the on-chain program)</p><details><summary>View exact settlement rules</summary><p>{formatMarketText(draft.resolutionRules)}</p><p>{collateralMessage}</p></details><button type="button" className="secondary-action" disabled={isPreparing || !collateralMint.trim()} onClick={() => void prepareInstructions()}>{isPreparing ? "Checking on-chain costs…" : "Prepare real market"}</button></div> : null}
       {preview ? <p><a className="secondary-action" download={`market-${preview.market}.json`} href={`data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(preview.terms, null, 2))}`}>Download public market terms</a></p> : null}
-      {preview ? <div className="draft-ready"><strong>Simulation passed. Review before approving.</strong><p>This creates and opens the market atomically. Account rent is additional to the estimated network fee.</p><dl className="instruction-preview"><div><dt>Market</dt><dd>{preview.market}</dd></div><div><dt>YES mint</dt><dd>{preview.yesMint}</dd></div><div><dt>NO mint</dt><dd>{preview.noMint}</dd></div><div><dt>Vault</dt><dd>{preview.vault}</dd></div><div><dt>Creator</dt><dd>{preview.creator}</dd></div><div><dt>Collateral</dt><dd>{preview.collateralMint}</dd></div><div><dt>Nonce</dt><dd>{preview.marketNonce}</dd></div><div><dt>Network fee</dt><dd>{preview.fee} base units</dd></div><div><dt>Block expiry</dt><dd>{preview.blockHeight}</dd></div><div><dt>Create data</dt><dd>{preview.createData}</dd></div><div><dt>Open data</dt><dd>{preview.openData}</dd></div></dl><button type="button" className="primary-action" disabled={isPreparing || Boolean(submissionMessage)} onClick={() => void createMarket()}>{isPreparing ? "Waiting for Nightly…" : "Create real market in Nightly"}</button></div> : null}
-      {submissionMessage ? <p className="draft-ready"><strong>{submissionMessage}</strong></p> : null}
+      {preview ? <div className="draft-ready"><strong>Simulation passed. Review before approving.</strong><p>This creates and opens the market atomically. Account rent is additional to the estimated network fee.</p><dl className="instruction-preview"><div><dt>Market</dt><dd>{preview.market}</dd></div><div><dt>YES mint</dt><dd>{preview.yesMint}</dd></div><div><dt>NO mint</dt><dd>{preview.noMint}</dd></div><div><dt>Vault</dt><dd>{preview.vault}</dd></div><div><dt>Creator</dt><dd>{preview.creator}</dd></div><div><dt>Collateral</dt><dd>{preview.collateralMint}</dd></div><div><dt>Nonce</dt><dd>{preview.marketNonce}</dd></div><div><dt>Network fee</dt><dd>{preview.fee} base units</dd></div><div><dt>Block expiry</dt><dd>{preview.blockHeight}</dd></div><div><dt>Create data</dt><dd>{preview.createData}</dd></div><div><dt>Open data</dt><dd>{preview.openData}</dd></div></dl><button type="button" className="primary-action" disabled={isPreparing || Boolean(submissionMessage)} onClick={() => void createMarket()}>{isPreparing ? "Waiting for Nightly…" : "Create real market in Nightly"}</button>{submissionMessage ? <p role="status"><strong>{submissionMessage}</strong></p> : null}</div> : null}
     </form>
   );
 }
