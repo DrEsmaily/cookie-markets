@@ -1,6 +1,6 @@
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
 import { NATIVE_MINT, buildCreateAssociatedTokenInstruction, buildSyncNativeInstruction, buildUnwrapNativeInstruction, deriveAssociatedTokenAddress } from "./token-instructions";
-import { PositionSide, buildMergePositionsInstruction, buildRedeemInstruction, buildSplitCollateralInstruction, deriveMarketAddresses } from "./cookie-markets-program";
+import { PositionSide, buildMergePositionsInstruction, buildRedeemInstruction, buildRefundInvalidPositionInstruction, buildSplitCollateralInstruction, deriveMarketAddresses } from "./cookie-markets-program";
 
 export function buildWrapNativeInstructions(user: PublicKey, amount: bigint): TransactionInstruction[] {
   if (amount <= BigInt(0) || amount > BigInt("18446744073709551615")) throw new RangeError("Native amount must be positive and fit in a u64.");
@@ -18,15 +18,15 @@ export async function buildPositionTransactionInstructions(params: {
   collateralMint: PublicKey;
   user: PublicKey;
   amount: bigint;
-  action: "split" | "merge" | "redeem";
+  action: "split" | "merge" | "redeem" | "refundInvalid";
   side?: PositionSide;
   wrapNative?: boolean;
 }) {
-  if (!["split", "merge", "redeem"].includes(params.action)) throw new RangeError("Unknown position action.");
+  if (!["split", "merge", "redeem", "refundInvalid"].includes(params.action)) throw new RangeError("Unknown position action.");
   if (params.wrapNative && (params.action !== "split" || !params.collateralMint.equals(NATIVE_MINT))) {
     throw new Error("Native wrapping is only valid for a native-mint collateral deposit.");
   }
-  if (params.action === "redeem" && params.side !== "yes" && params.side !== "no") throw new Error("Choose a redemption side.");
+  if ((params.action === "redeem" || params.action === "refundInvalid") && params.side !== "yes" && params.side !== "no") throw new Error("Choose a redemption side.");
   const addresses = deriveMarketAddresses(params.creator, params.marketNonce);
   const userCollateral = deriveAssociatedTokenAddress(params.collateralMint, params.user);
   const userYes = deriveAssociatedTokenAddress(addresses.yesMint, params.user);
@@ -36,7 +36,9 @@ export async function buildPositionTransactionInstructions(params: {
     ? await buildSplitCollateralInstruction(position)
     : params.action === "merge"
       ? await buildMergePositionsInstruction(position)
-      : await buildRedeemInstruction({ ...position, side: params.side! });
+      : params.action === "refundInvalid"
+        ? await buildRefundInvalidPositionInstruction({ ...position, side: params.side! })
+        : await buildRedeemInstruction({ ...position, side: params.side! });
   const instructions = [
     buildCreateAssociatedTokenInstruction(params.user, params.collateralMint),
     buildCreateAssociatedTokenInstruction(params.user, addresses.yesMint),
@@ -44,6 +46,6 @@ export async function buildPositionTransactionInstructions(params: {
   ];
   if (params.wrapNative) instructions.push(...buildWrapNativeInstructions(params.user, params.amount).slice(1));
   instructions.push(operation);
-  if (params.action === "redeem" && params.collateralMint.equals(NATIVE_MINT)) instructions.push(buildUnwrapNativeInstruction(params.user));
+  if ((params.action === "redeem" || params.action === "refundInvalid") && params.collateralMint.equals(NATIVE_MINT)) instructions.push(buildUnwrapNativeInstruction(params.user));
   return { instructions, userCollateral, userYes, userNo, ...addresses };
 }

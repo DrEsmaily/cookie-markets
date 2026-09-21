@@ -2,7 +2,6 @@ use anchor_lang::prelude::*;
 
 use crate::{CookieMarketsError, MarketOutcome};
 
-pub const AMM_FEE_BPS: u64 = 100;
 pub const AMM_TRADE_CAP_BPS: u64 = 100;
 pub const MAX_SLIPPAGE_BPS: u64 = 100;
 pub const BPS_DENOMINATOR: u64 = 10_000;
@@ -12,7 +11,9 @@ pub const DEFERRED_FEE_FLAG: u64 = 1 << 63;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AmmQuote {
     pub gross_input: u64,
-    pub fee: u64,
+    pub liquidity_provider_fee: u64,
+    pub owner_fee: u64,
+    pub total_fee: u64,
     pub net_input: u64,
     pub shares_out: u64,
     pub yes_reserve_after: u64,
@@ -76,6 +77,8 @@ pub fn quote_whole_shares(
     liquidity: u64,
     yes_reserve: u64,
     no_reserve: u64,
+    liquidity_provider_fee_bps: u16,
+    owner_fee_bps: u16,
 ) -> Result<AmmQuote> {
     require!(shares_out > 0, CookieMarketsError::ZeroAmount);
     require!(
@@ -116,9 +119,17 @@ pub fn quote_whole_shares(
         }
     }
     let net_input = low;
-    let fee = multiply_divide_ceil(net_input, AMM_FEE_BPS, BPS_DENOMINATOR)?;
+    let liquidity_provider_fee = multiply_divide_ceil(
+        net_input,
+        u64::from(liquidity_provider_fee_bps),
+        BPS_DENOMINATOR,
+    )?;
+    let owner_fee = multiply_divide_ceil(net_input, u64::from(owner_fee_bps), BPS_DENOMINATOR)?;
+    let total_fee = liquidity_provider_fee
+        .checked_add(owner_fee)
+        .ok_or(CookieMarketsError::ArithmeticOverflow)?;
     let gross_input = net_input
-        .checked_add(fee)
+        .checked_add(total_fee)
         .ok_or(CookieMarketsError::ArithmeticOverflow)?;
     require!(
         gross_input <= maximum_total_input,
@@ -136,7 +147,9 @@ pub fn quote_whole_shares(
         .ok_or(CookieMarketsError::ArithmeticOverflow)?;
     Ok(AmmQuote {
         gross_input,
-        fee,
+        liquidity_provider_fee,
+        owner_fee,
+        total_fee,
         net_input,
         shares_out,
         yes_reserve_after: if buy_yes {
@@ -170,6 +183,8 @@ pub fn quote_buy(
     liquidity: u64,
     yes_reserve: u64,
     no_reserve: u64,
+    liquidity_provider_fee_bps: u16,
+    owner_fee_bps: u16,
 ) -> Result<AmmQuote> {
     require!(gross_input > 0, CookieMarketsError::ZeroAmount);
     require!(
@@ -180,7 +195,10 @@ pub fn quote_buy(
         yes_reserve > 0 && no_reserve > 0,
         CookieMarketsError::PoolTooSmall
     );
-    let fee = multiply_divide_ceil(gross_input, AMM_FEE_BPS, BPS_DENOMINATOR)?;
+    let total_fee_bps = u64::from(liquidity_provider_fee_bps)
+        .checked_add(u64::from(owner_fee_bps))
+        .ok_or(CookieMarketsError::ArithmeticOverflow)?;
+    let fee = multiply_divide_ceil(gross_input, total_fee_bps, BPS_DENOMINATOR)?;
     let net_input = gross_input
         .checked_sub(fee)
         .ok_or(CookieMarketsError::ArithmeticOverflow)?;
@@ -223,7 +241,13 @@ pub fn quote_buy(
     );
     Ok(AmmQuote {
         gross_input,
-        fee,
+        liquidity_provider_fee: multiply_divide_ceil(
+            net_input,
+            u64::from(liquidity_provider_fee_bps),
+            BPS_DENOMINATOR,
+        )?,
+        owner_fee: multiply_divide_ceil(net_input, u64::from(owner_fee_bps), BPS_DENOMINATOR)?,
+        total_fee: fee,
         net_input,
         shares_out,
         yes_reserve_after,
@@ -255,6 +279,21 @@ pub fn creator_pool_claim(
             .map(|total| total / 2),
         MarketOutcome::Unresolved => err!(CookieMarketsError::InvalidMarketState),
     }
+}
+
+pub fn cost_basis_refund(held_shares: u64, held_cost: u64, shares: u64) -> Result<u64> {
+    require!(
+        shares > 0 && shares <= held_shares,
+        CookieMarketsError::InsufficientTrackedPosition
+    );
+    if shares == held_shares {
+        return Ok(held_cost);
+    }
+    let refund = u128::from(held_cost)
+        .checked_mul(u128::from(shares))
+        .ok_or(CookieMarketsError::ArithmeticOverflow)?
+        / u128::from(held_shares);
+    u64::try_from(refund).map_err(|_| error!(CookieMarketsError::ArithmeticOverflow))
 }
 
 fn multiply_divide_floor(value: u64, multiplier: u64, denominator: u64) -> Result<u64> {
@@ -314,8 +353,8 @@ mod tests {
 
     #[test]
     fn trades_enforce_fee_cap_and_invariant() {
-        let quote = quote_buy(true, 10_000, 1_000_000, 1_000_000, 1_000_000).unwrap();
-        assert_eq!(quote.fee, 100);
+        let quote = quote_buy(true, 10_000, 1_000_000, 1_000_000, 1_000_000, 100, 0).unwrap();
+        assert_eq!(quote.total_fee, 100);
         assert_eq!(quote.net_input, 9_900);
         assert!(quote.shares_out > quote.net_input);
         assert_eq!(quote.liquidity_after, 1_009_900);
@@ -323,15 +362,17 @@ mod tests {
             u128::from(quote.yes_reserve_after) * u128::from(quote.no_reserve_after)
                 >= 1_000_000_000_000
         );
-        assert!(quote_buy(true, 10_001, 1_000_000, 1_000_000, 1_000_000).is_err());
+        assert!(quote_buy(true, 10_001, 1_000_000, 1_000_000, 1_000_000, 100, 0).is_err());
     }
 
     #[test]
     fn whole_share_quotes_return_exact_integer_inventory() {
-        let quote =
-            quote_whole_shares(true, 5_000, 10_000, 1_000_000, 1_000_000, 1_000_000).unwrap();
+        let quote = quote_whole_shares(
+            true, 5_000, 10_000, 1_000_000, 1_000_000, 1_000_000, 100, 50,
+        )
+        .unwrap();
         assert_eq!(quote.shares_out, 5_000);
-        assert_eq!(quote.gross_input, quote.net_input + quote.fee);
+        assert_eq!(quote.gross_input, quote.net_input + quote.total_fee);
         assert!(
             u128::from(quote.yes_reserve_after) * u128::from(quote.no_reserve_after)
                 >= 1_000_000_000_000
@@ -342,7 +383,9 @@ mod tests {
             quote.gross_input - 1,
             1_000_000,
             1_000_000,
-            1_000_000
+            1_000_000,
+            100,
+            50
         )
         .is_err());
     }
@@ -362,7 +405,7 @@ mod tests {
         let mut no = 1_000_000_u64;
         for buy_yes in [true, true, false, true, false, false] {
             let input = maximum_trade(liquidity).unwrap();
-            let quote = quote_buy(buy_yes, input, liquidity, yes, no).unwrap();
+            let quote = quote_buy(buy_yes, input, liquidity, yes, no, 100, 50).unwrap();
             liquidity = quote.liquidity_after;
             yes = quote.yes_reserve_after;
             no = quote.no_reserve_after;
@@ -373,7 +416,7 @@ mod tests {
     #[test]
     fn cap_is_per_transaction_and_recalculates_after_every_buy() {
         let first_cap = maximum_trade(1_000_000).unwrap();
-        let first = quote_buy(true, first_cap, 1_000_000, 1_000_000, 1_000_000).unwrap();
+        let first = quote_buy(true, first_cap, 1_000_000, 1_000_000, 1_000_000, 100, 50).unwrap();
         let second_cap = maximum_trade(first.liquidity_after).unwrap();
         assert!(second_cap >= first_cap);
         let second = quote_buy(
@@ -382,6 +425,8 @@ mod tests {
             first.liquidity_after,
             first.yes_reserve_after,
             first.no_reserve_after,
+            100,
+            50,
         )
         .unwrap();
         assert!(second.shares_out > 0);
@@ -409,12 +454,32 @@ mod tests {
     }
 
     #[test]
+    fn invalid_refunds_preserve_each_buyers_actual_cost() {
+        let purchases = [(1_000, 200), (1_000, 400), (1_000, 800)];
+        let refunds: Vec<u64> = purchases
+            .iter()
+            .map(|(shares, cost)| cost_basis_refund(*shares, *cost, *shares).unwrap())
+            .collect();
+        assert_eq!(refunds, vec![200, 400, 800]);
+        assert_eq!(refunds.iter().sum::<u64>(), 1_400);
+        assert_ne!(refunds, vec![500, 500, 500]);
+    }
+
+    #[test]
+    fn partial_refunds_reconcile_without_rounding_dust() {
+        assert_eq!(cost_basis_refund(3, 10, 1).unwrap(), 3);
+        assert_eq!(cost_basis_refund(2, 7, 1).unwrap(), 3);
+        assert_eq!(cost_basis_refund(1, 4, 1).unwrap(), 4);
+    }
+
+    #[test]
     fn every_trade_conserves_collateral_and_outcome_shares() {
         for buy_yes in [true, false] {
             let yes_before = 800_000_u64;
             let no_before = 1_200_000_u64;
-            let quote = quote_buy(buy_yes, 10_000, 1_000_000, yes_before, no_before).unwrap();
-            assert_eq!(quote.fee + quote.net_input, quote.gross_input);
+            let quote =
+                quote_buy(buy_yes, 10_000, 1_000_000, yes_before, no_before, 100, 50).unwrap();
+            assert_eq!(quote.total_fee + quote.net_input, quote.gross_input);
             assert_eq!(quote.liquidity_after, 1_000_000 + quote.net_input);
             if buy_yes {
                 assert_eq!(

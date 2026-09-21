@@ -17,13 +17,15 @@ function keyAt(data: Buffer, offset: number): string {
 }
 
 export function decodeProtocolConfig(address: PublicKey, account: ProgramAccount) {
-  const data = verifiedData(account, "ProtocolConfig", 147);
+  if (account.data.length !== 147 && account.data.length !== 149) throw new Error("ProtocolConfig has an unexpected size.");
+  const data = verifiedData(account, "ProtocolConfig", account.data.length);
   const [expected, bump] = PublicKey.findProgramAddressSync([Buffer.from("config")], COOKIE_MARKETS_PROGRAM_ID);
   if (!expected.equals(address) || data[146] !== bump) throw new Error("Protocol config PDA is invalid.");
-  const feeBps = data.readUInt16LE(136);
+  const liquidityProviderFeeBps = data.readUInt16LE(136);
+  const ownerFeeBps = data.length === 149 ? data.readUInt16LE(147) : 0;
   const challengePeriod = data.readBigInt64LE(138);
-  if (feeBps > 1000 || challengePeriod < BigInt(0)) throw new Error("Protocol limits are invalid.");
-  return { configAddress: deriveConfigAddress().toBase58(), admin: keyAt(data, 8), feeRecipient: keyAt(data, 40), resolver: keyAt(data, 72), collateralMint: keyAt(data, 104), feeBps, challengePeriod: challengePeriod.toString() };
+  if (liquidityProviderFeeBps > 1000 || ownerFeeBps > 1000 || challengePeriod < BigInt(0)) throw new Error("Protocol limits are invalid.");
+  return { configAddress: deriveConfigAddress().toBase58(), admin: keyAt(data, 8), ownerFeeRecipient: keyAt(data, 40), feeRecipient: keyAt(data, 40), resolver: keyAt(data, 72), collateralMint: keyAt(data, 104), liquidityProviderFeeBps, ownerFeeBps, feeBps: liquidityProviderFeeBps, challengePeriod: challengePeriod.toString(), migrated: data.length === 149 };
 }
 
 export function decodeMarketAccount(address: PublicKey, account: ProgramAccount) {

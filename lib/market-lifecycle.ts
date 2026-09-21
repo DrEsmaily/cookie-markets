@@ -12,7 +12,7 @@ export type MarketLifecycle = {
 
 export function marketLifecycle(market: LifecycleMarket, now = Date.now()): MarketLifecycle {
   if (market.status === "resolved") {
-    if (market.outcome === "invalid") return { key: "refunding", label: "Invalid · refunds available", description: "The result could not be verified. Every remaining YES or NO share can claim 0.5 COOK; no pool collateral is burned.", tradingOpen: false, claimable: true };
+    if (market.outcome === "invalid") return { key: "refunding", label: "Invalid · refunds available", description: "The result could not be verified. Eligible positions can claim the refundable collateral recorded by the protocol.", tradingOpen: false, claimable: true };
     return { key: "resolved", label: `Resolved ${market.outcome.toUpperCase()}`, description: `The final result is ${market.outcome.toUpperCase()}. Winning shares can now claim 1 COOK each.`, tradingOpen: false, claimable: true };
   }
   if (market.status === "proposed") return { key: "proposed", label: "Result proposed", description: "Price evidence and a proposed result are on-chain. Claims unlock after the verification window finishes without a successful challenge.", tradingOpen: false, claimable: false };

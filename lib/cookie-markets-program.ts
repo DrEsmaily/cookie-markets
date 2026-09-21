@@ -59,7 +59,12 @@ export function deriveAmmAddresses(market: PublicKey) {
     pool: PublicKey.findProgramAddressSync([textEncoder.encode("amm_pool"), market.toBytes()], COOKIE_MARKETS_PROGRAM_ID)[0],
     poolYes: PublicKey.findProgramAddressSync([textEncoder.encode("amm_yes"), market.toBytes()], COOKIE_MARKETS_PROGRAM_ID)[0],
     poolNo: PublicKey.findProgramAddressSync([textEncoder.encode("amm_no"), market.toBytes()], COOKIE_MARKETS_PROGRAM_ID)[0],
+    accounting: PublicKey.findProgramAddressSync([textEncoder.encode("market_accounting"), market.toBytes()], COOKIE_MARKETS_PROGRAM_ID)[0],
   };
+}
+
+export function deriveAmmPositionAddress(market: PublicKey, user: PublicKey) {
+  return PublicKey.findProgramAddressSync([textEncoder.encode("amm_position"), market.toBytes(), user.toBytes()], COOKIE_MARKETS_PROGRAM_ID)[0];
 }
 
 export function buildInitializeAmmInstruction(params: {
@@ -68,9 +73,9 @@ export function buildInitializeAmmInstruction(params: {
   liquidity: bigint; yesProbabilityBps: number;
 }) {
   if (params.liquidity <= BigInt(0) || !Number.isInteger(params.yesProbabilityBps) || params.yesProbabilityBps <= 0 || params.yesProbabilityBps >= 10_000) throw new RangeError("Invalid AMM initialization values.");
-  const { pool, poolYes, poolNo } = deriveAmmAddresses(params.market);
+  const { pool, poolYes, poolNo, accounting } = deriveAmmAddresses(params.market);
   return instruction("initialize_amm", concatBytes(encodeUnsigned64(params.liquidity), encodeUnsigned16(params.yesProbabilityBps)), [
-    { pubkey: params.market, isWritable: true, isSigner: false }, { pubkey: pool, isWritable: true, isSigner: false },
+    { pubkey: params.market, isWritable: true, isSigner: false }, { pubkey: pool, isWritable: true, isSigner: false }, { pubkey: accounting, isWritable: true, isSigner: false },
     { pubkey: params.collateralMint, isWritable: false, isSigner: false }, { pubkey: params.yesMint, isWritable: true, isSigner: false }, { pubkey: params.noMint, isWritable: true, isSigner: false },
     { pubkey: params.vault, isWritable: true, isSigner: false }, { pubkey: poolYes, isWritable: true, isSigner: false }, { pubkey: poolNo, isWritable: true, isSigner: false },
     { pubkey: params.creatorCollateral, isWritable: true, isSigner: false }, { pubkey: params.creatorYes, isWritable: true, isSigner: false }, { pubkey: params.creatorNo, isWritable: true, isSigner: false },
@@ -80,17 +85,18 @@ export function buildInitializeAmmInstruction(params: {
 
 export function buildBuyFromAmmInstruction(params: {
   market: PublicKey; creator: PublicKey; collateralMint: PublicKey; yesMint: PublicKey; noMint: PublicKey; vault: PublicKey;
-  creatorCollateral: PublicKey; buyerCollateral: PublicKey; buyerYes: PublicKey; buyerNo: PublicKey; buyer: PublicKey;
+  buyerCollateral: PublicKey; buyerYes: PublicKey; buyerNo: PublicKey; buyer: PublicKey;
   side: PositionSide; sharesOut: bigint; maximumTotalInput: bigint;
 }) {
   if (params.sharesOut <= BigInt(0) || params.maximumTotalInput <= BigInt(0)) throw new RangeError("AMM purchase values must be positive.");
-  const { pool, poolYes, poolNo } = deriveAmmAddresses(params.market);
+  const { pool, poolYes, poolNo, accounting } = deriveAmmAddresses(params.market);
+  const position = deriveAmmPositionAddress(params.market, params.buyer);
   return instruction("buy_from_amm", concatBytes(Uint8Array.of(params.side === "yes" ? 0 : 1), encodeUnsigned64(params.sharesOut), encodeUnsigned64(params.maximumTotalInput)), [
-    { pubkey: params.market, isWritable: true, isSigner: false }, { pubkey: pool, isWritable: true, isSigner: false }, { pubkey: params.creator, isWritable: false, isSigner: false },
+    { pubkey: deriveConfigAddress(), isWritable: false, isSigner: false }, { pubkey: params.market, isWritable: true, isSigner: false }, { pubkey: pool, isWritable: true, isSigner: false }, { pubkey: params.creator, isWritable: false, isSigner: false },
     { pubkey: params.collateralMint, isWritable: false, isSigner: false }, { pubkey: params.yesMint, isWritable: true, isSigner: false }, { pubkey: params.noMint, isWritable: true, isSigner: false }, { pubkey: params.vault, isWritable: true, isSigner: false },
-    { pubkey: poolYes, isWritable: true, isSigner: false }, { pubkey: poolNo, isWritable: true, isSigner: false }, { pubkey: params.creatorCollateral, isWritable: true, isSigner: false },
+    { pubkey: poolYes, isWritable: true, isSigner: false }, { pubkey: poolNo, isWritable: true, isSigner: false }, { pubkey: accounting, isWritable: true, isSigner: false }, { pubkey: position, isWritable: true, isSigner: false },
     { pubkey: params.buyerCollateral, isWritable: true, isSigner: false }, { pubkey: params.buyerYes, isWritable: true, isSigner: false }, { pubkey: params.buyerNo, isWritable: true, isSigner: false },
-    { pubkey: params.buyer, isWritable: false, isSigner: true }, { pubkey: TOKEN_PROGRAM_ID, isWritable: false, isSigner: false },
+    { pubkey: params.buyer, isWritable: true, isSigner: true }, { pubkey: TOKEN_PROGRAM_ID, isWritable: false, isSigner: false }, { pubkey: SystemProgram.programId, isWritable: false, isSigner: false },
   ]);
 }
 
@@ -101,12 +107,15 @@ export function buildClaimAmmSettlementInstruction(params: {
   noMint: PublicKey;
   vault: PublicKey;
   creatorCollateral: PublicKey;
+  ownerFeeCollateral: PublicKey;
   creator: PublicKey;
 }) {
-  const { pool, poolYes, poolNo } = deriveAmmAddresses(params.market);
+  const { pool, poolYes, poolNo, accounting } = deriveAmmAddresses(params.market);
   return instruction("claim_amm_settlement", new Uint8Array(), [
+    { pubkey: deriveConfigAddress(), isWritable: false, isSigner: false },
     { pubkey: params.market, isWritable: true, isSigner: false },
     { pubkey: pool, isWritable: true, isSigner: false },
+    { pubkey: accounting, isWritable: true, isSigner: false },
     { pubkey: params.collateralMint, isWritable: false, isSigner: false },
     { pubkey: params.yesMint, isWritable: true, isSigner: false },
     { pubkey: params.noMint, isWritable: true, isSigner: false },
@@ -114,6 +123,7 @@ export function buildClaimAmmSettlementInstruction(params: {
     { pubkey: poolYes, isWritable: true, isSigner: false },
     { pubkey: poolNo, isWritable: true, isSigner: false },
     { pubkey: params.creatorCollateral, isWritable: true, isSigner: false },
+    { pubkey: params.ownerFeeCollateral, isWritable: true, isSigner: false },
     { pubkey: params.creator, isWritable: false, isSigner: true },
     { pubkey: TOKEN_PROGRAM_ID, isWritable: false, isSigner: false },
   ]);
@@ -276,14 +286,15 @@ export async function buildCancelAskInstruction(params: AskIdentity & { makerSha
 
 export async function buildInitializeProtocolInstruction(params: {
   admin: PublicKey;
-  feeRecipient: PublicKey;
+  ownerFeeRecipient: PublicKey;
   resolver: PublicKey;
   collateralMint: PublicKey;
-  feeBps: number;
+  liquidityProviderFeeBps: number;
+  ownerFeeBps: number;
   challengePeriod: bigint;
 }): Promise<TransactionInstruction> {
-  if (!Number.isInteger(params.feeBps) || params.feeBps < 0 || params.feeBps > 1_000) {
-    throw new RangeError("feeBps must be an integer between 0 and 1000");
+  if (![params.liquidityProviderFeeBps, params.ownerFeeBps].every((value) => Number.isInteger(value) && value >= 0 && value <= 1_000)) {
+    throw new RangeError("Fee rates must be integers between 0 and 1000");
   }
   if (params.challengePeriod < BigInt(0)) {
     throw new RangeError("challengePeriod cannot be negative");
@@ -292,9 +303,10 @@ export async function buildInitializeProtocolInstruction(params: {
   return instruction(
     "initialize_protocol",
     concatBytes(
-      params.feeRecipient.toBytes(),
+      params.ownerFeeRecipient.toBytes(),
       params.resolver.toBytes(),
-      encodeUnsigned16(params.feeBps),
+      encodeUnsigned16(params.liquidityProviderFeeBps),
+      encodeUnsigned16(params.ownerFeeBps),
       encodeSigned64(params.challengePeriod),
     ),
     [
@@ -308,14 +320,16 @@ export async function buildInitializeProtocolInstruction(params: {
 
 export async function buildUpdateProtocolInstruction(params: {
   admin: PublicKey;
-  feeRecipient: PublicKey;
+  newAdmin: PublicKey;
+  ownerFeeRecipient: PublicKey;
   resolver: PublicKey;
-  feeBps: number;
+  liquidityProviderFeeBps: number;
+  ownerFeeBps: number;
   challengePeriod: bigint;
 }): Promise<TransactionInstruction> {
-  if (!Number.isInteger(params.feeBps) || params.feeBps < 0 || params.feeBps > 1_000) throw new RangeError("feeBps must be an integer between 0 and 1000");
+  if (![params.liquidityProviderFeeBps, params.ownerFeeBps].every((value) => Number.isInteger(value) && value >= 0 && value <= 1_000)) throw new RangeError("Fee rates must be integers between 0 and 1000");
   if (params.challengePeriod < BigInt(0)) throw new RangeError("challengePeriod cannot be negative");
-  return instruction("update_protocol", concatBytes(params.feeRecipient.toBytes(), params.resolver.toBytes(), encodeUnsigned16(params.feeBps), encodeSigned64(params.challengePeriod)), [
+  return instruction("update_protocol", concatBytes(params.newAdmin.toBytes(), params.ownerFeeRecipient.toBytes(), params.resolver.toBytes(), encodeUnsigned16(params.liquidityProviderFeeBps), encodeUnsigned16(params.ownerFeeBps), encodeSigned64(params.challengePeriod)), [
     { pubkey: deriveConfigAddress(), isSigner: false, isWritable: true },
     { pubkey: params.admin, isSigner: true, isWritable: false },
   ]);
@@ -498,6 +512,28 @@ export async function buildRedeemInstruction(
     params,
     Uint8Array.of(params.side === "yes" ? 0 : 1),
   );
+}
+
+export async function buildRefundInvalidPositionInstruction(params: PositionInstructionParams & { side: PositionSide }): Promise<TransactionInstruction> {
+  if (params.side !== "yes" && params.side !== "no") throw new RangeError("Position side must be yes or no");
+  if (params.amount <= BigInt(0)) throw new RangeError("Refund share amount must be positive");
+  const { market, yesMint, noMint, vault } = deriveMarketAddresses(params.creator, params.marketNonce);
+  const { accounting } = deriveAmmAddresses(market);
+  const position = deriveAmmPositionAddress(market, params.user);
+  return instruction("refund_invalid_position", concatBytes(Uint8Array.of(params.side === "yes" ? 0 : 1), encodeUnsigned64(params.amount)), [
+    { pubkey: market, isSigner: false, isWritable: false },
+    { pubkey: accounting, isSigner: false, isWritable: true },
+    { pubkey: position, isSigner: false, isWritable: true },
+    { pubkey: params.collateralMint, isSigner: false, isWritable: false },
+    { pubkey: yesMint, isSigner: false, isWritable: true },
+    { pubkey: noMint, isSigner: false, isWritable: true },
+    { pubkey: vault, isSigner: false, isWritable: true },
+    { pubkey: params.userCollateral, isSigner: false, isWritable: true },
+    { pubkey: params.userYes, isSigner: false, isWritable: true },
+    { pubkey: params.userNo, isSigner: false, isWritable: true },
+    { pubkey: params.user, isSigner: true, isWritable: false },
+    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+  ]);
 }
 
 async function instructionWithoutArgs(

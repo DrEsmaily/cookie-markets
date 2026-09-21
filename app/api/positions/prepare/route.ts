@@ -2,6 +2,7 @@ import { PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
 import { NextResponse } from "next/server";
 import { cookieChainConnection } from "@/lib/cookie-chain";
 import { COOKIE_CHAIN } from "@/lib/cookie-chain-config";
+import { deriveAmmPositionAddress } from "@/lib/amm-pool";
 import { decodeMarketAccount } from "@/lib/protocol-accounts";
 import { readVerifiedProtocol } from "@/lib/protocol-reader";
 import { buildPositionTransactionInstructions } from "@/lib/position-transactions";
@@ -39,8 +40,10 @@ export async function POST(request: Request) {
       if (hashHex(terms.questionHash) !== market.questionHash || hashHex(terms.rulesHash) !== market.rulesHash) return NextResponse.json({ error: "Readable terms do not match the immutable on-chain hashes. Deposit refused." }, { status: 409 });
     }
     const amount = parseTokenAmount(body.amount, protocol.collateralDecimals);
-    if (action === "redeem" && market.outcome === "invalid" && amount % BigInt(2) !== BigInt(0)) return NextResponse.json({ error: "Invalid-market refunds require an even number of share base units." }, { status: 400 });
-    const prepared = await buildPositionTransactionInstructions({ creator: new PublicKey(market.creator), marketNonce: BigInt(market.nonce), collateralMint: new PublicKey(market.collateralMint), user, amount, action, side: side === "yes" || side === "no" ? side : undefined, wrapNative: body.wrapNative === true });
+    const trackedPosition = action === "redeem" && market.outcome === "invalid"
+      ? await cookieChainConnection.getAccountInfo(deriveAmmPositionAddress(address, user), "confirmed")
+      : null;
+    const prepared = await buildPositionTransactionInstructions({ creator: new PublicKey(market.creator), marketNonce: BigInt(market.nonce), collateralMint: new PublicKey(market.collateralMint), user, amount, action: trackedPosition ? "refundInvalid" : action, side: side === "yes" || side === "no" ? side : undefined, wrapNative: body.wrapNative === true });
     const latest = await cookieChainConnection.getLatestBlockhashAndContext("confirmed");
     const transaction = new Transaction({ feePayer: user, ...latest.value }).add(...prepared.instructions);
     const message = transaction.compileMessage();

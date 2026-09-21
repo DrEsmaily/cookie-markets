@@ -44,7 +44,7 @@ export function ProtocolInitializer() {
     const authority = new PublicKey(AUTHORITY);
     const latest = await cookieChainConnection.getLatestBlockhash("confirmed");
     const transaction = new Transaction({ feePayer: authority, recentBlockhash: latest.blockhash }).add(
-      await buildInitializeProtocolInstruction({ admin: authority, feeRecipient: authority, resolver: authority, collateralMint: new PublicKey(COLLATERAL_MINT), feeBps: PROTOCOL_LIMITS.tradingFeeBps, challengePeriod: BigInt(PROTOCOL_LIMITS.resolutionChallengeSeconds) }),
+      await buildInitializeProtocolInstruction({ admin: authority, ownerFeeRecipient: authority, resolver: authority, collateralMint: new PublicKey(COLLATERAL_MINT), liquidityProviderFeeBps: PROTOCOL_LIMITS.tradingFeeBps, ownerFeeBps: 50, challengePeriod: BigInt(PROTOCOL_LIMITS.resolutionChallengeSeconds) }),
     );
     return { wallet, account, transaction, latest };
   }

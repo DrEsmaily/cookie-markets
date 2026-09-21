@@ -50,6 +50,9 @@ export async function GET(request: Request) {
       yesPercent: yesBps / 100,
       noPercent: (10_000 - yesBps) / 100,
       maximumTrade: maximumAmmTrade(state.pool.liquidity).toString(),
+      liquidityProviderFeeBps: state.protocol.liquidityProviderFeeBps,
+      ownerFeeBps: state.protocol.ownerFeeBps,
+      ownerFeeRecipient: state.protocol.ownerFeeRecipient,
       totalCreatorFees: state.pool.totalCreatorFees.toString(),
       settlementClaimed: state.pool.settlementClaimed,
       creatorClaimable: (creatorClaimable(state.market.outcome, state.pool.yesReserve, state.pool.noReserve) + (state.pool.deferredFees ? state.pool.totalCreatorFees : BigInt(0))).toString(),
@@ -83,12 +86,11 @@ export async function POST(request: Request) {
       if (body.side !== "yes" && body.side !== "no") return NextResponse.json({ error: "Choose YES or NO." }, { status: 400 });
       if (typeof body.amount !== "string" || !/^\d+$/.test(body.amount) || body.amount === "0") return NextResponse.json({ error: "Enter a whole number of shares." }, { status: 400 });
       const sharesOut = parseTokenAmount(body.amount, state.protocol.collateralDecimals);
-      quote = quoteWholeShares(body.side, sharesOut, state.pool.liquidity, state.pool.yesReserve, state.pool.noReserve);
+      quote = quoteWholeShares(body.side, sharesOut, state.pool.liquidity, state.pool.yesReserve, state.pool.noReserve, state.protocol.liquidityProviderFeeBps, state.protocol.ownerFeeBps);
       instructions.push(
         buildCreateAssociatedTokenInstruction(user, collateralMint),
         buildCreateAssociatedTokenInstruction(user, yesMint),
         buildCreateAssociatedTokenInstruction(user, noMint),
-        buildCreateAssociatedTokenInstruction(creator, collateralMint, user),
       );
       if (collateralMint.equals(NATIVE_MINT)) instructions.push(
         SystemProgram.transfer({ fromPubkey: user, toPubkey: userCollateral, lamports: quote.grossInput }),
@@ -96,7 +98,7 @@ export async function POST(request: Request) {
       );
       instructions.push(await buildBuyFromAmmInstruction({
         market: marketAddress, creator, collateralMint, yesMint, noMint, vault,
-        creatorCollateral, buyerCollateral: userCollateral, buyerYes: userYes, buyerNo: userNo,
+        buyerCollateral: userCollateral, buyerYes: userYes, buyerNo: userNo,
         buyer: user, side: body.side, sharesOut, maximumTotalInput: quote.maximumTotalInput,
       }));
     } else if (body.action === "claimCreator") {
@@ -104,7 +106,10 @@ export async function POST(request: Request) {
       if (state.market.status !== "resolved" || state.market.outcome === "unresolved") return NextResponse.json({ error: "Settlement is not final yet." }, { status: 409 });
       if (state.pool.settlementClaimed) return NextResponse.json({ error: "The creator settlement was already claimed." }, { status: 409 });
       instructions.push(buildCreateAssociatedTokenInstruction(creator, collateralMint));
-      instructions.push(await buildClaimAmmSettlementInstruction({ market: marketAddress, collateralMint, yesMint, noMint, vault, creatorCollateral, creator }));
+      const ownerFeeRecipient = new PublicKey(state.protocol.ownerFeeRecipient);
+      const ownerFeeCollateral = deriveAssociatedTokenAddress(collateralMint, ownerFeeRecipient);
+      instructions.push(buildCreateAssociatedTokenInstruction(ownerFeeRecipient, collateralMint, user, true));
+      instructions.push(await buildClaimAmmSettlementInstruction({ market: marketAddress, collateralMint, yesMint, noMint, vault, creatorCollateral, ownerFeeCollateral, creator }));
       if (collateralMint.equals(NATIVE_MINT)) instructions.push(buildUnwrapNativeInstruction(creator));
     } else {
       return NextResponse.json({ error: "Choose buy or creator settlement claim." }, { status: 400 });

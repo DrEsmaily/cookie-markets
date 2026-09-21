@@ -1,6 +1,6 @@
 #![allow(unexpected_cfgs)]
 
-use anchor_lang::prelude::*;
+use anchor_lang::{prelude::*, system_program};
 use anchor_spl::token::{self, Burn, Mint, MintTo, Token, TokenAccount, TransferChecked};
 mod orders;
 pub use orders::*;
@@ -20,11 +20,68 @@ const RESOLUTION_SEED: &[u8] = b"resolution";
 const POOL_SEED: &[u8] = b"amm_pool";
 const POOL_YES_SEED: &[u8] = b"amm_yes";
 const POOL_NO_SEED: &[u8] = b"amm_no";
+const MARKET_ACCOUNTING_SEED: &[u8] = b"market_accounting";
+const AMM_POSITION_SEED: &[u8] = b"amm_position";
 const MAX_FEE_BPS: u16 = 1_000;
 
 #[program]
 pub mod cookie_markets {
     use super::*;
+
+    pub fn migrate_protocol_config(
+        ctx: Context<MigrateProtocolConfig>,
+        owner_fee_bps: u16,
+    ) -> Result<()> {
+        require!(owner_fee_bps <= MAX_FEE_BPS, CookieMarketsError::FeeTooHigh);
+        let config_info = ctx.accounts.config.to_account_info();
+        require_keys_eq!(
+            *config_info.owner,
+            crate::ID,
+            CookieMarketsError::InvalidConfigAccount
+        );
+        let (expected, _) = Pubkey::find_program_address(&[CONFIG_SEED], &crate::ID);
+        require_keys_eq!(
+            config_info.key(),
+            expected,
+            CookieMarketsError::InvalidConfigAccount
+        );
+        require!(
+            config_info.data_len() == ProtocolConfig::LEGACY_SPACE,
+            CookieMarketsError::ConfigAlreadyMigrated
+        );
+        let stored_admin = {
+            let data = config_info.try_borrow_data()?;
+            Pubkey::new_from_array(
+                data[8..40]
+                    .try_into()
+                    .map_err(|_| CookieMarketsError::InvalidConfigAccount)?,
+            )
+        };
+        require_keys_eq!(
+            stored_admin,
+            ctx.accounts.admin.key(),
+            CookieMarketsError::UnauthorizedAdmin
+        );
+        let required_lamports = Rent::get()?.minimum_balance(ProtocolConfig::SPACE);
+        let top_up = required_lamports.saturating_sub(config_info.lamports());
+        if top_up > 0 {
+            system_program::transfer(
+                CpiContext::new(
+                    ctx.accounts.system_program.key(),
+                    system_program::Transfer {
+                        from: ctx.accounts.admin.to_account_info(),
+                        to: config_info.clone(),
+                    },
+                ),
+                top_up,
+            )?;
+        }
+        config_info.resize(ProtocolConfig::SPACE)?;
+        let mut data = config_info.try_borrow_mut_data()?;
+        data[ProtocolConfig::LEGACY_SPACE..ProtocolConfig::SPACE]
+            .copy_from_slice(&owner_fee_bps.to_le_bytes());
+        Ok(())
+    }
 
     pub fn place_ask(
         ctx: Context<PlaceAsk>,
@@ -130,6 +187,11 @@ pub mod cookie_markets {
         pool.total_creator_fees = DEFERRED_FEE_FLAG;
         pool.settlement_claimed = false;
         pool.bump = ctx.bumps.pool;
+        let accounting = &mut ctx.accounts.accounting;
+        accounting.market = market.key();
+        accounting.invalid_refund_liability = 0;
+        accounting.accrued_owner_fees = 0;
+        accounting.bump = ctx.bumps.accounting;
         let pool_seeds: &[&[u8]] = &[POOL_SEED, pool.market.as_ref(), &[pool.bump]];
         for (from, to, amount) in [
             (
@@ -208,23 +270,9 @@ pub mod cookie_markets {
             ctx.accounts.pool.liquidity,
             ctx.accounts.pool.yes_reserve,
             ctx.accounts.pool.no_reserve,
+            ctx.accounts.config.liquidity_provider_fee_bps,
+            ctx.accounts.config.owner_fee_bps,
         )?;
-        let fees_deferred = deferred_fees(ctx.accounts.pool.total_creator_fees);
-        if !fees_deferred {
-            token::transfer_checked(
-                CpiContext::new(
-                    ctx.accounts.token_program.key(),
-                    TransferChecked {
-                        from: ctx.accounts.buyer_collateral.to_account_info(),
-                        mint: ctx.accounts.collateral_mint.to_account_info(),
-                        to: ctx.accounts.creator_collateral.to_account_info(),
-                        authority: ctx.accounts.buyer.to_account_info(),
-                    },
-                ),
-                quote.fee,
-                ctx.accounts.collateral_mint.decimals,
-            )?;
-        }
         token::transfer_checked(
             CpiContext::new(
                 ctx.accounts.token_program.key(),
@@ -235,11 +283,7 @@ pub mod cookie_markets {
                     authority: ctx.accounts.buyer.to_account_info(),
                 },
             ),
-            if fees_deferred {
-                quote.gross_input
-            } else {
-                quote.net_input
-            },
+            quote.gross_input,
             ctx.accounts.collateral_mint.decimals,
         )?;
         let market_key = ctx.accounts.market.key();
@@ -300,7 +344,48 @@ pub mod cookie_markets {
         pool.liquidity = quote.liquidity_after;
         pool.yes_reserve = quote.yes_reserve_after;
         pool.no_reserve = quote.no_reserve_after;
-        pool.total_creator_fees = add_creator_fee(pool.total_creator_fees, quote.fee)?;
+        pool.total_creator_fees =
+            add_creator_fee(pool.total_creator_fees, quote.liquidity_provider_fee)?;
+        let position = &mut ctx.accounts.position;
+        if position.market == Pubkey::default() {
+            position.market = market_key;
+            position.user = ctx.accounts.buyer.key();
+            position.bump = ctx.bumps.position;
+        }
+        match side {
+            PositionSide::Yes => {
+                position.yes_shares = position
+                    .yes_shares
+                    .checked_add(quote.shares_out)
+                    .ok_or(CookieMarketsError::ArithmeticOverflow)?;
+                position.yes_cost = position
+                    .yes_cost
+                    .checked_add(quote.gross_input)
+                    .ok_or(CookieMarketsError::ArithmeticOverflow)?;
+            }
+            PositionSide::No => {
+                position.no_shares = position
+                    .no_shares
+                    .checked_add(quote.shares_out)
+                    .ok_or(CookieMarketsError::ArithmeticOverflow)?;
+                position.no_cost = position
+                    .no_cost
+                    .checked_add(quote.gross_input)
+                    .ok_or(CookieMarketsError::ArithmeticOverflow)?;
+            }
+        }
+        ctx.accounts.accounting.invalid_refund_liability = ctx
+            .accounts
+            .accounting
+            .invalid_refund_liability
+            .checked_add(quote.gross_input)
+            .ok_or(CookieMarketsError::ArithmeticOverflow)?;
+        ctx.accounts.accounting.accrued_owner_fees = ctx
+            .accounts
+            .accounting
+            .accrued_owner_fees
+            .checked_add(quote.owner_fee)
+            .ok_or(CookieMarketsError::ArithmeticOverflow)?;
         ctx.accounts.market.outstanding_sets = ctx
             .accounts
             .market
@@ -312,7 +397,8 @@ pub mod cookie_markets {
             buyer: ctx.accounts.buyer.key(),
             side,
             gross_input: quote.gross_input,
-            fee: quote.fee,
+            liquidity_provider_fee: quote.liquidity_provider_fee,
+            owner_fee: quote.owner_fee,
             shares_out: quote.shares_out,
             yes_probability_bps: yes_probability_bps(pool.yes_reserve, pool.no_reserve)?
         });
@@ -328,11 +414,19 @@ pub mod cookie_markets {
             !ctx.accounts.pool.settlement_claimed,
             CookieMarketsError::PoolAlreadyClaimed
         );
-        let payout = creator_pool_claim(
-            ctx.accounts.market.outcome,
-            ctx.accounts.pool.yes_reserve,
-            ctx.accounts.pool.no_reserve,
-        )?;
+        let payout = if ctx.accounts.market.outcome == MarketOutcome::Invalid {
+            ctx.accounts
+                .vault
+                .amount
+                .checked_sub(ctx.accounts.accounting.invalid_refund_liability)
+                .ok_or(CookieMarketsError::RefundLiabilityExceeded)?
+        } else {
+            creator_pool_claim(
+                ctx.accounts.market.outcome,
+                ctx.accounts.pool.yes_reserve,
+                ctx.accounts.pool.no_reserve,
+            )?
+        };
         let pool = &ctx.accounts.pool;
         let pool_seeds: &[&[u8]] = &[POOL_SEED, pool.market.as_ref(), &[pool.bump]];
         let burns = match ctx.accounts.market.outcome {
@@ -398,7 +492,9 @@ pub mod cookie_markets {
             &nonce_bytes,
             &[market.bump],
         ];
-        let total_payout = if deferred_fees(ctx.accounts.pool.total_creator_fees) {
+        let total_payout = if ctx.accounts.market.outcome == MarketOutcome::Invalid {
+            payout
+        } else if deferred_fees(ctx.accounts.pool.total_creator_fees) {
             payout
                 .checked_add(creator_fees(ctx.accounts.pool.total_creator_fees))
                 .ok_or(CookieMarketsError::ArithmeticOverflow)?
@@ -419,12 +515,33 @@ pub mod cookie_markets {
             total_payout,
             ctx.accounts.collateral_mint.decimals,
         )?;
-        ctx.accounts.market.outstanding_sets = ctx
-            .accounts
-            .market
-            .outstanding_sets
-            .checked_sub(payout)
-            .ok_or(CookieMarketsError::InsufficientOutstandingSets)?;
+        if ctx.accounts.market.outcome != MarketOutcome::Invalid
+            && ctx.accounts.accounting.accrued_owner_fees > 0
+        {
+            token::transfer_checked(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.key(),
+                    TransferChecked {
+                        from: ctx.accounts.vault.to_account_info(),
+                        mint: ctx.accounts.collateral_mint.to_account_info(),
+                        to: ctx.accounts.owner_fee_collateral.to_account_info(),
+                        authority: market.to_account_info(),
+                    },
+                    &[market_seeds],
+                ),
+                ctx.accounts.accounting.accrued_owner_fees,
+                ctx.accounts.collateral_mint.decimals,
+            )?;
+            ctx.accounts.accounting.accrued_owner_fees = 0;
+        }
+        if ctx.accounts.market.outcome != MarketOutcome::Invalid {
+            ctx.accounts.market.outstanding_sets = ctx
+                .accounts
+                .market
+                .outstanding_sets
+                .checked_sub(payout)
+                .ok_or(CookieMarketsError::InsufficientOutstandingSets)?;
+        }
         ctx.accounts.pool.settlement_claimed = true;
         emit!(AmmSettlementClaimed {
             market: ctx.accounts.market.key(),
@@ -436,24 +553,27 @@ pub mod cookie_markets {
 
     pub fn initialize_protocol(
         ctx: Context<InitializeProtocol>,
-        fee_recipient: Pubkey,
+        owner_fee_recipient: Pubkey,
         resolver: Pubkey,
-        fee_bps: u16,
+        liquidity_provider_fee_bps: u16,
+        owner_fee_bps: u16,
         challenge_period: i64,
     ) -> Result<()> {
         ProtocolConfig::validate_initialization(
-            fee_recipient,
+            owner_fee_recipient,
             resolver,
-            fee_bps,
+            liquidity_provider_fee_bps,
+            owner_fee_bps,
             challenge_period,
         )?;
 
         let config = &mut ctx.accounts.config;
         config.admin = ctx.accounts.admin.key();
-        config.fee_recipient = fee_recipient;
+        config.owner_fee_recipient = owner_fee_recipient;
         config.resolver = resolver;
         config.collateral_mint = ctx.accounts.collateral_mint.key();
-        config.fee_bps = fee_bps;
+        config.liquidity_provider_fee_bps = liquidity_provider_fee_bps;
+        config.owner_fee_bps = owner_fee_bps;
         config.challenge_period = challenge_period;
         config.bump = ctx.bumps.config;
 
@@ -461,34 +581,47 @@ pub mod cookie_markets {
             admin: config.admin,
             resolver,
             collateral_mint: config.collateral_mint,
-            fee_bps,
+            liquidity_provider_fee_bps,
+            owner_fee_bps,
+            owner_fee_recipient,
         });
         Ok(())
     }
 
     pub fn update_protocol(
         ctx: Context<UpdateProtocol>,
-        fee_recipient: Pubkey,
+        new_admin: Pubkey,
+        owner_fee_recipient: Pubkey,
         resolver: Pubkey,
-        fee_bps: u16,
+        liquidity_provider_fee_bps: u16,
+        owner_fee_bps: u16,
         challenge_period: i64,
     ) -> Result<()> {
         ProtocolConfig::validate_initialization(
-            fee_recipient,
+            owner_fee_recipient,
             resolver,
-            fee_bps,
+            liquidity_provider_fee_bps,
+            owner_fee_bps,
             challenge_period,
         )?;
+        require!(
+            new_admin != Pubkey::default(),
+            CookieMarketsError::InvalidAdmin
+        );
         let config = &mut ctx.accounts.config;
-        config.fee_recipient = fee_recipient;
+        config.admin = new_admin;
+        config.owner_fee_recipient = owner_fee_recipient;
         config.resolver = resolver;
-        config.fee_bps = fee_bps;
+        config.liquidity_provider_fee_bps = liquidity_provider_fee_bps;
+        config.owner_fee_bps = owner_fee_bps;
         config.challenge_period = challenge_period;
         emit!(ProtocolInitialized {
             admin: config.admin,
             resolver,
             collateral_mint: config.collateral_mint,
-            fee_bps,
+            liquidity_provider_fee_bps,
+            owner_fee_bps,
+            owner_fee_recipient,
         });
         Ok(())
     }
@@ -845,7 +978,6 @@ pub mod cookie_markets {
             market.status == MarketStatus::Resolved,
             CookieMarketsError::InvalidMarketState
         );
-
         let payout = market.payout_for(side, amount)?;
         let (mint, position) = match side {
             PositionSide::Yes => (
@@ -907,6 +1039,116 @@ pub mod cookie_markets {
         });
         Ok(())
     }
+
+    pub fn refund_invalid_position(
+        ctx: Context<RefundInvalidPosition>,
+        side: PositionSide,
+        shares: u64,
+    ) -> Result<()> {
+        require!(shares > 0, CookieMarketsError::ZeroAmount);
+        require!(
+            ctx.accounts.market.status == MarketStatus::Resolved
+                && ctx.accounts.market.outcome == MarketOutcome::Invalid,
+            CookieMarketsError::InvalidMarketState
+        );
+        let position = &mut ctx.accounts.position;
+        let (held_shares, held_cost) = match side {
+            PositionSide::Yes => (position.yes_shares, position.yes_cost),
+            PositionSide::No => (position.no_shares, position.no_cost),
+        };
+        require!(
+            shares <= held_shares,
+            CookieMarketsError::InsufficientTrackedPosition
+        );
+        let refund = cost_basis_refund(held_shares, held_cost, shares)?;
+        require!(refund > 0, CookieMarketsError::PayoutRoundsToZero);
+        require!(
+            refund <= ctx.accounts.accounting.invalid_refund_liability
+                && refund <= ctx.accounts.vault.amount,
+            CookieMarketsError::RefundLiabilityExceeded
+        );
+
+        let (mint, account) = match side {
+            PositionSide::Yes => (
+                ctx.accounts.yes_mint.to_account_info(),
+                ctx.accounts.user_yes.to_account_info(),
+            ),
+            PositionSide::No => (
+                ctx.accounts.no_mint.to_account_info(),
+                ctx.accounts.user_no.to_account_info(),
+            ),
+        };
+        token::burn(
+            CpiContext::new(
+                ctx.accounts.token_program.key(),
+                Burn {
+                    mint,
+                    from: account,
+                    authority: ctx.accounts.user.to_account_info(),
+                },
+            ),
+            shares,
+        )?;
+
+        match side {
+            PositionSide::Yes => {
+                position.yes_shares = position
+                    .yes_shares
+                    .checked_sub(shares)
+                    .ok_or(CookieMarketsError::ArithmeticOverflow)?;
+                position.yes_cost = position
+                    .yes_cost
+                    .checked_sub(refund)
+                    .ok_or(CookieMarketsError::ArithmeticOverflow)?;
+            }
+            PositionSide::No => {
+                position.no_shares = position
+                    .no_shares
+                    .checked_sub(shares)
+                    .ok_or(CookieMarketsError::ArithmeticOverflow)?;
+                position.no_cost = position
+                    .no_cost
+                    .checked_sub(refund)
+                    .ok_or(CookieMarketsError::ArithmeticOverflow)?;
+            }
+        }
+        ctx.accounts.accounting.invalid_refund_liability = ctx
+            .accounts
+            .accounting
+            .invalid_refund_liability
+            .checked_sub(refund)
+            .ok_or(CookieMarketsError::RefundLiabilityExceeded)?;
+        let market = &ctx.accounts.market;
+        let nonce_bytes = market.nonce.to_le_bytes();
+        let signer_seeds: &[&[u8]] = &[
+            MARKET_SEED,
+            market.creator.as_ref(),
+            &nonce_bytes,
+            &[market.bump],
+        ];
+        token::transfer_checked(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.key(),
+                TransferChecked {
+                    from: ctx.accounts.vault.to_account_info(),
+                    mint: ctx.accounts.collateral_mint.to_account_info(),
+                    to: ctx.accounts.user_collateral.to_account_info(),
+                    authority: market.to_account_info(),
+                },
+                &[signer_seeds],
+            ),
+            refund,
+            ctx.accounts.collateral_mint.decimals,
+        )?;
+        emit!(InvalidPositionRefunded {
+            market: market.key(),
+            user: ctx.accounts.user.key(),
+            side,
+            shares_burned: shares,
+            collateral_refunded: refund,
+        });
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -914,6 +1156,16 @@ pub struct InitializeProtocol<'info> {
     #[account(init, payer = admin, space = ProtocolConfig::SPACE, seeds = [CONFIG_SEED], bump)]
     pub config: Account<'info, ProtocolConfig>,
     pub collateral_mint: Account<'info, Mint>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct MigrateProtocolConfig<'info> {
+    /// CHECK: Legacy account is manually verified before it is resized.
+    #[account(mut)]
+    pub config: UncheckedAccount<'info>,
     #[account(mut)]
     pub admin: Signer<'info>,
     pub system_program: Program<'info, System>,
@@ -1044,6 +1296,8 @@ pub struct InitializeAmm<'info> {
     pub market: Box<Account<'info, Market>>,
     #[account(init, payer = creator, space = AmmPool::SPACE, seeds = [POOL_SEED, market.key().as_ref()], bump)]
     pub pool: Box<Account<'info, AmmPool>>,
+    #[account(init, payer = creator, space = MarketAccounting::SPACE, seeds = [MARKET_ACCOUNTING_SEED, market.key().as_ref()], bump)]
+    pub accounting: Box<Account<'info, MarketAccounting>>,
     #[account(address = market.collateral_mint)]
     pub collateral_mint: Box<Account<'info, Mint>>,
     #[account(mut, address = market.yes_mint)]
@@ -1070,6 +1324,8 @@ pub struct InitializeAmm<'info> {
 
 #[derive(Accounts)]
 pub struct BuyFromAmm<'info> {
+    #[account(seeds = [CONFIG_SEED], bump = config.bump)]
+    pub config: Box<Account<'info, ProtocolConfig>>,
     #[account(mut)]
     pub market: Box<Account<'info, Market>>,
     #[account(mut, seeds = [POOL_SEED, market.key().as_ref()], bump = pool.bump, has_one = market, has_one = creator)]
@@ -1088,24 +1344,32 @@ pub struct BuyFromAmm<'info> {
     pub pool_yes: Box<Account<'info, TokenAccount>>,
     #[account(mut, seeds = [POOL_NO_SEED, market.key().as_ref()], bump, token::mint = no_mint, token::authority = pool)]
     pub pool_no: Box<Account<'info, TokenAccount>>,
-    #[account(mut, token::mint = collateral_mint, token::authority = creator)]
-    pub creator_collateral: Box<Account<'info, TokenAccount>>,
+    #[account(mut, seeds = [MARKET_ACCOUNTING_SEED, market.key().as_ref()], bump = accounting.bump, has_one = market)]
+    pub accounting: Box<Account<'info, MarketAccounting>>,
+    #[account(init_if_needed, payer = buyer, space = AmmPosition::SPACE, seeds = [AMM_POSITION_SEED, market.key().as_ref(), buyer.key().as_ref()], bump)]
+    pub position: Box<Account<'info, AmmPosition>>,
     #[account(mut, token::mint = collateral_mint, token::authority = buyer)]
     pub buyer_collateral: Box<Account<'info, TokenAccount>>,
     #[account(mut, token::mint = yes_mint, token::authority = buyer)]
     pub buyer_yes: Box<Account<'info, TokenAccount>>,
     #[account(mut, token::mint = no_mint, token::authority = buyer)]
     pub buyer_no: Box<Account<'info, TokenAccount>>,
+    #[account(mut)]
     pub buyer: Signer<'info>,
     pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
 pub struct ClaimAmmSettlement<'info> {
+    #[account(seeds = [CONFIG_SEED], bump = config.bump)]
+    pub config: Box<Account<'info, ProtocolConfig>>,
     #[account(mut, has_one = creator)]
     pub market: Box<Account<'info, Market>>,
     #[account(mut, seeds = [POOL_SEED, market.key().as_ref()], bump = pool.bump, has_one = market, has_one = creator)]
     pub pool: Box<Account<'info, AmmPool>>,
+    #[account(mut, seeds = [MARKET_ACCOUNTING_SEED, market.key().as_ref()], bump = accounting.bump, has_one = market)]
+    pub accounting: Box<Account<'info, MarketAccounting>>,
     #[account(address = market.collateral_mint)]
     pub collateral_mint: Box<Account<'info, Mint>>,
     #[account(mut, address = market.yes_mint)]
@@ -1120,6 +1384,8 @@ pub struct ClaimAmmSettlement<'info> {
     pub pool_no: Box<Account<'info, TokenAccount>>,
     #[account(mut, token::mint = collateral_mint, token::authority = creator)]
     pub creator_collateral: Box<Account<'info, TokenAccount>>,
+    #[account(mut, token::mint = collateral_mint, constraint = owner_fee_collateral.owner == config.owner_fee_recipient)]
+    pub owner_fee_collateral: Box<Account<'info, TokenAccount>>,
     pub creator: Signer<'info>,
     pub token_program: Program<'info, Token>,
 }
@@ -1224,35 +1490,67 @@ pub struct Redeem<'info> {
     pub token_program: Program<'info, Token>,
 }
 
+#[derive(Accounts)]
+pub struct RefundInvalidPosition<'info> {
+    #[account(seeds = [MARKET_SEED, market.creator.as_ref(), &market.nonce.to_le_bytes()], bump = market.bump)]
+    pub market: Box<Account<'info, Market>>,
+    #[account(mut, seeds = [MARKET_ACCOUNTING_SEED, market.key().as_ref()], bump = accounting.bump, has_one = market)]
+    pub accounting: Box<Account<'info, MarketAccounting>>,
+    #[account(mut, seeds = [AMM_POSITION_SEED, market.key().as_ref(), user.key().as_ref()], bump = position.bump, has_one = market, has_one = user)]
+    pub position: Box<Account<'info, AmmPosition>>,
+    #[account(address = market.collateral_mint)]
+    pub collateral_mint: Box<Account<'info, Mint>>,
+    #[account(mut, address = market.yes_mint)]
+    pub yes_mint: Box<Account<'info, Mint>>,
+    #[account(mut, address = market.no_mint)]
+    pub no_mint: Box<Account<'info, Mint>>,
+    #[account(mut, address = market.vault, token::mint = collateral_mint, token::authority = market)]
+    pub vault: Box<Account<'info, TokenAccount>>,
+    #[account(mut, token::mint = collateral_mint, token::authority = user)]
+    pub user_collateral: Box<Account<'info, TokenAccount>>,
+    #[account(mut, token::mint = yes_mint, token::authority = user)]
+    pub user_yes: Box<Account<'info, TokenAccount>>,
+    #[account(mut, token::mint = no_mint, token::authority = user)]
+    pub user_no: Box<Account<'info, TokenAccount>>,
+    pub user: Signer<'info>,
+    pub token_program: Program<'info, Token>,
+}
+
 #[account]
 pub struct ProtocolConfig {
     pub admin: Pubkey,
-    pub fee_recipient: Pubkey,
+    pub owner_fee_recipient: Pubkey,
     pub resolver: Pubkey,
     pub collateral_mint: Pubkey,
-    pub fee_bps: u16,
+    pub liquidity_provider_fee_bps: u16,
     pub challenge_period: i64,
     pub bump: u8,
+    pub owner_fee_bps: u16,
 }
 
 impl ProtocolConfig {
-    pub const SPACE: usize = 8 + 32 + 32 + 32 + 32 + 2 + 8 + 1;
+    pub const LEGACY_SPACE: usize = 8 + 32 + 32 + 32 + 32 + 2 + 8 + 1;
+    pub const SPACE: usize = 8 + 32 + 32 + 32 + 32 + 2 + 8 + 1 + 2;
 
     fn validate_initialization(
-        fee_recipient: Pubkey,
+        owner_fee_recipient: Pubkey,
         resolver: Pubkey,
-        fee_bps: u16,
+        liquidity_provider_fee_bps: u16,
+        owner_fee_bps: u16,
         challenge_period: i64,
     ) -> Result<()> {
         require!(
-            fee_recipient != Pubkey::default(),
+            owner_fee_recipient != Pubkey::default(),
             CookieMarketsError::InvalidFeeRecipient
         );
         require!(
             resolver != Pubkey::default(),
             CookieMarketsError::InvalidResolver
         );
-        require!(fee_bps <= MAX_FEE_BPS, CookieMarketsError::FeeTooHigh);
+        require!(
+            liquidity_provider_fee_bps <= MAX_FEE_BPS && owner_fee_bps <= MAX_FEE_BPS,
+            CookieMarketsError::FeeTooHigh
+        );
         require!(
             challenge_period >= 0,
             CookieMarketsError::InvalidChallengePeriod
@@ -1295,6 +1593,33 @@ pub struct AmmPool {
 
 impl AmmPool {
     pub const SPACE: usize = 8 + 32 + 32 + 8 + 8 + 8 + 8 + 1 + 1;
+}
+
+#[account]
+pub struct MarketAccounting {
+    pub market: Pubkey,
+    pub invalid_refund_liability: u64,
+    pub accrued_owner_fees: u64,
+    pub bump: u8,
+}
+
+impl MarketAccounting {
+    pub const SPACE: usize = 8 + 32 + 8 + 8 + 1;
+}
+
+#[account]
+pub struct AmmPosition {
+    pub market: Pubkey,
+    pub user: Pubkey,
+    pub yes_shares: u64,
+    pub yes_cost: u64,
+    pub no_shares: u64,
+    pub no_cost: u64,
+    pub bump: u8,
+}
+
+impl AmmPosition {
+    pub const SPACE: usize = 8 + 32 + 32 + 8 * 4 + 1;
 }
 
 impl Market {
@@ -1376,7 +1701,9 @@ pub struct ProtocolInitialized {
     pub admin: Pubkey,
     pub resolver: Pubkey,
     pub collateral_mint: Pubkey,
-    pub fee_bps: u16,
+    pub liquidity_provider_fee_bps: u16,
+    pub owner_fee_bps: u16,
+    pub owner_fee_recipient: Pubkey,
 }
 
 #[event]
@@ -1453,7 +1780,8 @@ pub struct AmmTrade {
     pub buyer: Pubkey,
     pub side: PositionSide,
     pub gross_input: u64,
-    pub fee: u64,
+    pub liquidity_provider_fee: u64,
+    pub owner_fee: u64,
     pub shares_out: u64,
     pub yes_probability_bps: u16,
 }
@@ -1465,8 +1793,25 @@ pub struct AmmSettlementClaimed {
     pub payout: u64,
 }
 
+#[event]
+pub struct InvalidPositionRefunded {
+    pub market: Pubkey,
+    pub user: Pubkey,
+    pub side: PositionSide,
+    pub shares_burned: u64,
+    pub collateral_refunded: u64,
+}
+
 #[error_code]
 pub enum CookieMarketsError {
+    #[msg("Admin cannot be the default public key")]
+    InvalidAdmin,
+    #[msg("Only the current protocol admin may perform this action")]
+    UnauthorizedAdmin,
+    #[msg("Protocol config account is invalid")]
+    InvalidConfigAccount,
+    #[msg("Protocol config has already been migrated")]
+    ConfigAlreadyMigrated,
     #[msg("Fee recipient cannot be the default public key")]
     InvalidFeeRecipient,
     #[msg("Resolver cannot be the default public key")]
@@ -1519,6 +1864,12 @@ pub enum CookieMarketsError {
     UnsupportedCollateral,
     #[msg("Invalid-market redemption requires an even number of share base units")]
     InvalidRedemptionAmount,
+    #[msg("Invalid markets must use cost-basis refunds")]
+    UseInvalidRefund,
+    #[msg("Requested refund exceeds the tracked position")]
+    InsufficientTrackedPosition,
+    #[msg("Refund exceeds the market's recorded liability")]
+    RefundLiabilityExceeded,
     #[msg("Starting YES probability must be between 0% and 100%")]
     InvalidStartingProbability,
     #[msg("The AMM pool is too small")]
@@ -1563,12 +1914,17 @@ mod tests {
     #[test]
     fn rejects_unusable_protocol_configuration() {
         let valid = Pubkey::new_unique();
-        assert!(ProtocolConfig::validate_initialization(valid, valid, 1_000, 1).is_ok());
-        assert!(ProtocolConfig::validate_initialization(Pubkey::default(), valid, 0, 1).is_err());
-        assert!(ProtocolConfig::validate_initialization(valid, Pubkey::default(), 0, 1).is_err());
-        assert!(ProtocolConfig::validate_initialization(valid, valid, 1_001, 1).is_err());
-        assert!(ProtocolConfig::validate_initialization(valid, valid, 0, 0).is_ok());
-        assert!(ProtocolConfig::validate_initialization(valid, valid, 0, -1).is_err());
+        assert!(ProtocolConfig::validate_initialization(valid, valid, 1_000, 500, 1).is_ok());
+        assert!(
+            ProtocolConfig::validate_initialization(Pubkey::default(), valid, 0, 0, 1).is_err()
+        );
+        assert!(
+            ProtocolConfig::validate_initialization(valid, Pubkey::default(), 0, 0, 1).is_err()
+        );
+        assert!(ProtocolConfig::validate_initialization(valid, valid, 1_001, 0, 1).is_err());
+        assert!(ProtocolConfig::validate_initialization(valid, valid, 0, 1_001, 1).is_err());
+        assert!(ProtocolConfig::validate_initialization(valid, valid, 0, 0, 0).is_ok());
+        assert!(ProtocolConfig::validate_initialization(valid, valid, 0, 0, -1).is_err());
     }
 
     #[test]

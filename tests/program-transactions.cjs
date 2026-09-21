@@ -369,8 +369,9 @@ async function testAmmInitialization(config, collateralMint) {
   const liquidity = 1_000_000_000_000n;
   await send([new TransactionInstruction({ programId: tokenProgram, keys: [meta(collateralMint, true), meta(creatorCollateral, true), meta(admin.publicKey, false, true)], data: Buffer.concat([Buffer.from([7]), integer(liquidity)]) })]);
   await send([await client.buildInitializeAmmInstruction({ market, collateralMint, yesMint, noMint, vault, creator: admin.publicKey, creatorCollateral, creatorYes, creatorNo, liquidity, yesProbabilityBps: 6_000 })]);
-  const { pool, poolYes, poolNo } = client.deriveAmmAddresses(market);
+  const { pool, poolYes, poolNo, accounting } = client.deriveAmmAddresses(market);
   assert.ok(await connection.getAccountInfo(pool));
+  assert.ok(await connection.getAccountInfo(accounting));
   assert.equal((await connection.getTokenAccountBalance(vault)).value.amount, liquidity.toString());
   assert.equal((await connection.getTokenAccountBalance(poolYes)).value.amount, "666666666666");
   assert.equal((await connection.getTokenAccountBalance(poolNo)).value.amount, liquidity.toString());
@@ -379,16 +380,19 @@ async function testAmmInitialization(config, collateralMint) {
   const buyerCollateral = await createTokenAccount(collateralMint, outsider.publicKey);
   const buyerYes = await createTokenAccount(yesMint, outsider.publicKey);
   const buyerNo = await createTokenAccount(noMint, outsider.publicKey);
-  const quote = require("../.test-build/amm-pool.js").quoteWholeShares("yes", 5_000_000_000n, liquidity, 666_666_666_666n, liquidity);
+  const quote = require("../.test-build/amm-pool.js").quoteWholeShares("yes", 5_000_000_000n, liquidity, 666_666_666_666n, liquidity, 30, 50);
   await send([new TransactionInstruction({ programId: tokenProgram, keys: [meta(collateralMint, true), meta(buyerCollateral, true), meta(admin.publicKey, false, true)], data: Buffer.concat([Buffer.from([7]), integer(quote.grossInput)]) })]);
-  const buy = await client.buildBuyFromAmmInstruction({ market, creator: admin.publicKey, collateralMint, yesMint, noMint, vault, creatorCollateral, buyerCollateral, buyerYes, buyerNo, buyer: outsider.publicKey, side: "yes", sharesOut: 5_000_000_000n, maximumTotalInput: quote.maximumTotalInput });
+  const buy = await client.buildBuyFromAmmInstruction({ market, creator: admin.publicKey, collateralMint, yesMint, noMint, vault, buyerCollateral, buyerYes, buyerNo, buyer: outsider.publicKey, side: "yes", sharesOut: 5_000_000_000n, maximumTotalInput: quote.maximumTotalInput });
   await send([buy], [outsider]);
   assert.equal((await connection.getTokenAccountBalance(buyerYes)).value.amount, "5000000000");
   assert.equal((await connection.getTokenAccountBalance(creatorCollateral)).value.amount, "0");
   assert.equal((await connection.getTokenAccountBalance(vault)).value.amount, (liquidity + quote.grossInput).toString());
   const storedFees = (await connection.getAccountInfo(pool)).data.readBigUInt64LE(96);
   assert.equal(storedFees >> 63n, 1n);
-  assert.equal(storedFees & ((1n << 63n) - 1n), quote.fee);
+  assert.equal(storedFees & ((1n << 63n) - 1n), quote.liquidityProviderFee);
+  const accountingData = (await connection.getAccountInfo(accounting)).data;
+  assert.equal(accountingData.readBigUInt64LE(40), quote.grossInput);
+  assert.equal(accountingData.readBigUInt64LE(48), quote.ownerFee);
   console.log("AMM initialization and whole-share purchase passed on validator: exact shares, fee custody, pool accounting, and no immediate creator payment.");
 }
 
@@ -408,9 +412,9 @@ async function main() {
   ], [admin, collateral]);
 
   const config = pda("config");
-  await send([instruction("initialize_protocol", [meta(config, true), meta(collateral.publicKey), meta(admin.publicKey, true, true), meta(SystemProgram.programId)], admin.publicKey.toBuffer(), admin.publicKey.toBuffer(), Buffer.from([30, 0]), integer(20))]);
+  await send([instruction("initialize_protocol", [meta(config, true), meta(collateral.publicKey), meta(admin.publicKey, true, true), meta(SystemProgram.programId)], admin.publicKey.toBuffer(), admin.publicKey.toBuffer(), Buffer.from([30, 0]), Buffer.from([50, 0]), integer(20))]);
   const configAccount = await connection.getAccountInfo(config);
-  assert.equal(configAccount.data.length, 147);
+  assert.equal(configAccount.data.length, 149);
   assert.ok(configAccount.owner.equals(program));
   assert.ok(new PublicKey(configAccount.data.subarray(104, 136)).equals(collateral.publicKey));
 

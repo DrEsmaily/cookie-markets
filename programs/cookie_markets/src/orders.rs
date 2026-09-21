@@ -43,13 +43,13 @@ pub fn place(
     order.market = market.key();
     order.maker = ctx.accounts.maker.key();
     order.share_mint = expected_mint;
-    order.fee_recipient = ctx.accounts.config.fee_recipient;
+    order.fee_recipient = ctx.accounts.config.owner_fee_recipient;
     order.nonce = nonce;
     order.total_shares = shares;
     order.filled_shares = 0;
     order.price = price;
     order.expires_at = expires_at;
-    order.fee_bps = ctx.accounts.config.fee_bps;
+    order.fee_bps = ctx.accounts.config.owner_fee_bps;
     order.cancelled = false;
     order.bump = ctx.bumps.order;
     order.escrow_bump = ctx.bumps.escrow;

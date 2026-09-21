@@ -46,6 +46,8 @@ test("AMM builders match pool account layout and exact trade limits", async () =
   const buyerCollateral = new PublicKey(Buffer.alloc(32, 11));
   const buyerYes = new PublicKey(Buffer.alloc(32, 12));
   const buyerNo = new PublicKey(Buffer.alloc(32, 13));
+  const ownerFeeCollateral = new PublicKey(Buffer.alloc(32, 14));
+  const positionAddress = client.deriveAmmPositionAddress(market, buyer);
   const liquidity = 1_000_000_000n;
   const probability = Buffer.alloc(2);
   probability.writeUInt16LE(6_000);
@@ -55,7 +57,7 @@ test("AMM builders match pool account layout and exact trade limits", async () =
     vault: addresses.vault, creator, creatorCollateral, creatorYes, creatorNo,
     liquidity, yesProbabilityBps: 6_000,
   }), "initialize_amm", [
-    [market, true], [amm.pool, true], [collateralMint], [addresses.yesMint, true],
+    [market, true], [amm.pool, true], [amm.accounting, true], [collateralMint], [addresses.yesMint, true],
     [addresses.noMint, true], [addresses.vault, true], [amm.poolYes, true],
     [amm.poolNo, true], [creatorCollateral, true], [creatorYes, true],
     [creatorNo, true], [creator, true, true], [client.TOKEN_PROGRAM_ID],
@@ -64,23 +66,23 @@ test("AMM builders match pool account layout and exact trade limits", async () =
 
   assertInstruction(await client.buildBuyFromAmmInstruction({
     market, creator, collateralMint, yesMint: addresses.yesMint, noMint: addresses.noMint,
-    vault: addresses.vault, creatorCollateral, buyerCollateral, buyerYes, buyerNo, buyer,
+    vault: addresses.vault, buyerCollateral, buyerYes, buyerNo, buyer,
     side: "no", sharesOut: 10_000_000n, maximumTotalInput: 9_800_000n,
   }), "buy_from_amm", [
-    [market, true], [amm.pool, true], [creator], [collateralMint],
+    [client.deriveConfigAddress()], [market, true], [amm.pool, true], [creator], [collateralMint],
     [addresses.yesMint, true], [addresses.noMint, true], [addresses.vault, true],
-    [amm.poolYes, true], [amm.poolNo, true], [creatorCollateral, true],
-    [buyerCollateral, true], [buyerYes, true], [buyerNo, true], [buyer, false, true],
-    [client.TOKEN_PROGRAM_ID],
+    [amm.poolYes, true], [amm.poolNo, true], [amm.accounting, true], [positionAddress, true],
+    [buyerCollateral, true], [buyerYes, true], [buyerNo, true], [buyer, true, true],
+    [client.TOKEN_PROGRAM_ID], [SystemProgram.programId],
   ], Buffer.concat([Buffer.from([1]), unsigned(10_000_000n), unsigned(9_800_000n)]));
 
   assertInstruction(await client.buildClaimAmmSettlementInstruction({
     market, collateralMint, yesMint: addresses.yesMint, noMint: addresses.noMint,
-    vault: addresses.vault, creatorCollateral, creator,
+    vault: addresses.vault, creatorCollateral, ownerFeeCollateral, creator,
   }), "claim_amm_settlement", [
-    [market, true], [amm.pool, true], [collateralMint], [addresses.yesMint, true],
+    [client.deriveConfigAddress()], [market, true], [amm.pool, true], [amm.accounting, true], [collateralMint], [addresses.yesMint, true],
     [addresses.noMint, true], [addresses.vault, true], [amm.poolYes, true],
-    [amm.poolNo, true], [creatorCollateral, true], [creator, false, true],
+    [amm.poolNo, true], [creatorCollateral, true], [ownerFeeCollateral, true], [creator, false, true],
     [client.TOKEN_PROGRAM_ID],
   ]);
 });
@@ -304,8 +306,9 @@ test("PDA derivation preserves the full unsigned nonce", () => {
 test("protocol initialization matches Anchor arguments and permissions", async () => {
   const fee = Buffer.alloc(2);
   fee.writeUInt16LE(1000);
-  assertInstruction(await client.buildInitializeProtocolInstruction({ admin: creator, feeRecipient: user, resolver: creator, collateralMint, feeBps: 1000, challengePeriod: 86400n }), "initialize_protocol", [[client.deriveConfigAddress(), true], [collateralMint], [creator, true, true], [SystemProgram.programId]], Buffer.concat([user.toBuffer(), creator.toBuffer(), fee, unsigned(86400n)]));
-  assertInstruction(await client.buildUpdateProtocolInstruction({ admin: creator, feeRecipient: user, resolver: creator, feeBps: 1000, challengePeriod: 0n }), "update_protocol", [[client.deriveConfigAddress(), true], [creator, false, true]], Buffer.concat([user.toBuffer(), creator.toBuffer(), fee, unsigned(0n)]));
+  const ownerFee = Buffer.alloc(2); ownerFee.writeUInt16LE(50);
+  assertInstruction(await client.buildInitializeProtocolInstruction({ admin: creator, ownerFeeRecipient: user, resolver: creator, collateralMint, liquidityProviderFeeBps: 1000, ownerFeeBps: 50, challengePeriod: 86400n }), "initialize_protocol", [[client.deriveConfigAddress(), true], [collateralMint], [creator, true, true], [SystemProgram.programId]], Buffer.concat([user.toBuffer(), creator.toBuffer(), fee, ownerFee, unsigned(86400n)]));
+  assertInstruction(await client.buildUpdateProtocolInstruction({ admin: creator, newAdmin: creator, ownerFeeRecipient: user, resolver: creator, liquidityProviderFeeBps: 1000, ownerFeeBps: 50, challengePeriod: 0n }), "update_protocol", [[client.deriveConfigAddress(), true], [creator, false, true]], Buffer.concat([creator.toBuffer(), user.toBuffer(), creator.toBuffer(), fee, ownerFee, unsigned(0n)]));
 });
 
 test("market creation matches the contract wire layout", async () => {
@@ -351,9 +354,9 @@ test("invalid runtime inputs fail before instructions are constructed", async ()
   await assert.rejects(client.buildProposeResolutionInstruction({ ...resolution, outcome: "unknown" }), RangeError);
   await assert.rejects(client.buildProposeResolutionInstruction({ ...resolution, evidenceHash: Buffer.alloc(32) }), RangeError);
   await assert.rejects(client.buildResolveChallengeInstruction({ ...resolution, evidenceHash: Buffer.alloc(31) }), RangeError);
-  const initialize = { admin: creator, feeRecipient: user, resolver: user, collateralMint, feeBps: 0, challengePeriod: 1n };
-  for (const feeBps of [-1, 1001, 0.5, NaN]) await assert.rejects(client.buildInitializeProtocolInstruction({ ...initialize, feeBps }), RangeError);
-  assertInstruction(await client.buildInitializeProtocolInstruction({ ...initialize, challengePeriod: 0n }), "initialize_protocol", [[client.deriveConfigAddress(), true], [collateralMint], [creator, true, true], [SystemProgram.programId]], Buffer.concat([user.toBuffer(), user.toBuffer(), Buffer.alloc(2), unsigned(0n)]));
+  const initialize = { admin: creator, ownerFeeRecipient: user, resolver: user, collateralMint, liquidityProviderFeeBps: 0, ownerFeeBps: 0, challengePeriod: 1n };
+  for (const feeBps of [-1, 1001, 0.5, NaN]) await assert.rejects(client.buildInitializeProtocolInstruction({ ...initialize, liquidityProviderFeeBps: feeBps }), RangeError);
+  assertInstruction(await client.buildInitializeProtocolInstruction({ ...initialize, challengePeriod: 0n }), "initialize_protocol", [[client.deriveConfigAddress(), true], [collateralMint], [creator, true, true], [SystemProgram.programId]], Buffer.concat([user.toBuffer(), user.toBuffer(), Buffer.alloc(4), unsigned(0n)]));
   await assert.rejects(client.buildInitializeProtocolInstruction({ ...initialize, challengePeriod: -1n }), RangeError);
   const create = { creator, collateralMint, marketNonce, questionHash: Buffer.alloc(32, 1), rulesHash: Buffer.alloc(32, 2), closesAt: 20n, resolveAfter: 30n };
   await assert.rejects(client.buildCreateMarketInstruction({ ...create, questionHash: Buffer.alloc(32) }), RangeError);

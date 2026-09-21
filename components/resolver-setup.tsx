@@ -8,7 +8,7 @@ import { readApiResponse } from "@/lib/api-response";
 
 const KEEPER = "hNnAqtwMY5HzMsM6BJRJKzmoyNfMg4Q3fp7HFNdwZ7C";
 
-type Protocol = { admin: string; feeRecipient: string; resolver: string; feeBps: number; challengePeriod: string };
+type Protocol = { admin: string; ownerFeeRecipient: string; resolver: string; liquidityProviderFeeBps: number; ownerFeeBps: number; challengePeriod: string };
 
 export function ResolverSetup() {
   const [protocol, setProtocol] = useState<Protocol>();
@@ -35,7 +35,7 @@ export function ResolverSetup() {
       const account = (await connect.connect()).accounts[0];
       if (!account || account.address !== protocol.admin) throw new Error("Connect the protocol admin wallet.");
       const admin = new PublicKey(protocol.admin);
-      const instruction = await buildUpdateProtocolInstruction({ admin, feeRecipient: new PublicKey(protocol.feeRecipient), resolver: new PublicKey(KEEPER), feeBps: protocol.feeBps, challengePeriod: BigInt(0) });
+      const instruction = await buildUpdateProtocolInstruction({ admin, newAdmin: admin, ownerFeeRecipient: new PublicKey(protocol.ownerFeeRecipient), resolver: new PublicKey(KEEPER), liquidityProviderFeeBps: protocol.liquidityProviderFeeBps, ownerFeeBps: protocol.ownerFeeBps, challengePeriod: BigInt(0) });
       const latest = await cookieChainConnection.getLatestBlockhash("confirmed");
       const transaction = new Transaction({ feePayer: admin, recentBlockhash: latest.blockhash }).add(instruction);
       const simulation = await cookieChainConnection.simulateTransaction(transaction);

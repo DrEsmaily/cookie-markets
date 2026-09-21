@@ -9,7 +9,7 @@ import { readPublishedMarketTerms, publishVerifiedMarketTerms } from "@/lib/publ
 import { createMarketTermsRecord, createPriceEvidenceRecord } from "@/lib/market-terms-record";
 import { coinbasePriceMarketSpec, createPriceMarketTerms, collectCoinbasePriceEvidence } from "@/lib/market-terms";
 import { readPreparationBody, RequestSizeError } from "@/lib/preparation-body";
-import { ammProbabilityBps, decodeAmmPool, deriveAmmAddresses } from "@/lib/amm-pool";
+import { ammProbabilityBps, decodeAmmPool, decodeAmmPosition, deriveAmmAddresses, deriveAmmPositionAddress } from "@/lib/amm-pool";
 
 export const dynamic = "force-dynamic";
 
@@ -94,7 +94,10 @@ export async function GET(request: Request) {
       if (!account) return NextResponse.json({ error: "Market was not found." }, { status: 404 });
       const market = decodeMarketAccount(positionMarket, account);
       if (market.collateralMint !== config.collateralMint) throw new Error("Market collateral does not match protocol config.");
-      return NextResponse.json({ deployed: true, collateralDecimals: config.collateralDecimals, position: await readVerifiedPosition(cookieChainConnection, market, positionUser), note: "Associated token account balances only. Native COOK, other token accounts and escrowed orders are excluded. This is not a payout quote." });
+      const positionAddress = deriveAmmPositionAddress(positionMarket, positionUser);
+      const positionAccount = await cookieChainConnection.getAccountInfo(positionAddress, "confirmed");
+      const refund = positionAccount ? decodeAmmPosition(positionAddress, positionMarket, positionUser, positionAccount) : undefined;
+      return NextResponse.json({ deployed: true, collateralDecimals: config.collateralDecimals, position: { ...await readVerifiedPosition(cookieChainConnection, market, positionUser), refund: refund ? { yesShares: refund.yesShares.toString(), yesCost: refund.yesCost.toString(), noShares: refund.noShares.toString(), noCost: refund.noCost.toString(), refunded: refund.refunded } : undefined }, note: refund ? "Token balances and contract-recorded invalid-market cost basis." : "Legacy position without cost-basis accounting; legacy contract redemption rules apply." });
     }
     if (asksMarket) {
       const account = await cookieChainConnection.getAccountInfo(asksMarket, "confirmed");
