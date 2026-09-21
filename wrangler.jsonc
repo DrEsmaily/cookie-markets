@@ -8,6 +8,9 @@
     "directory": ".open-next/assets",
     "binding": "ASSETS"
   },
+  "kv_namespaces": [
+    { "binding": "COOKIE_MARKETS_TERMS", "id": "7b464d5ba72f4200971566be0a884b61" }
+  ],
   "observability": {
     "enabled": true
   }

@@ -78,6 +78,17 @@ export async function GET(request: Request) {
     const configAddress = deriveConfigAddress();
     const config = await readVerifiedProtocol(cookieChainConnection);
     if (!config) return NextResponse.json({ deployed: false, configAddress: configAddress.toBase58(), markets: [] });
+    const requestedMarket = parameters.get("market");
+    if (requestedMarket) {
+      let address: PublicKey;
+      try { address = new PublicKey(requestedMarket); }
+      catch { return NextResponse.json({ error: "Provide a valid market address." }, { status: 400 }); }
+      const account = await cookieChainConnection.getAccountInfo(address, "confirmed");
+      if (!account) return NextResponse.json({ error: "Market is pending confirmation." }, { status: 404 });
+      const market = decodeMarketAccount(address, account);
+      if (market.collateralMint !== config.collateralMint) throw new Error("Market collateral does not match protocol config.");
+      return NextResponse.json({ deployed: true, market });
+    }
     if (positionUser && positionMarket) {
       const account = await cookieChainConnection.getAccountInfo(positionMarket, "confirmed");
       if (!account) return NextResponse.json({ error: "Market was not found." }, { status: 404 });

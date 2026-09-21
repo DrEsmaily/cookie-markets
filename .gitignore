@@ -1,6 +1,8 @@
 node_modules
 .npm-cache
 .next
+.open-next
+.wrangler
 .test-build
 out
 .anchor

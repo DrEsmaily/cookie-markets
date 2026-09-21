@@ -4,10 +4,27 @@ import { PublicKey } from "@solana/web3.js";
 import { open, readFile, stat, mkdir, link, unlink, readdir } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { COOKIE_CHAIN } from "./cookie-chain-config";
 import { COOKIE_MARKETS_PROGRAM_ID } from "./cookie-markets-program";
 
 export const publishedMarketTerms: readonly MarketTermsRecord[] = [];
+
+type TermsStore = {
+  get(key: string, type: "json"): Promise<unknown>;
+  put(key: string, value: string): Promise<void>;
+};
+
+async function cloudflareTermsStore(): Promise<TermsStore | undefined> {
+  try {
+    const context = await getCloudflareContext({ async: true });
+    const store = (context.env as Record<string, unknown>).COOKIE_MARKETS_TERMS;
+    if (store && typeof store === "object" && "get" in store && "put" in store) return store as TermsStore;
+  } catch {
+    // Local development uses the persistent filesystem store below.
+  }
+  return undefined;
+}
 
 function storageDirectory(directory = process.env.COOKIE_MARKETS_TERMS_DIR) {
   if (!directory && process.env.NODE_ENV !== "production") directory = join(process.cwd(), ".local-data", "market-terms");
@@ -23,6 +40,14 @@ function recordPath(directory: string, market: string) {
 
 export async function readPublishedMarketTerms(market: string, directory?: string): Promise<readonly unknown[]> {
   const bundled = publishedMarketTerms.filter((record) => record.market === market);
+  const store = await cloudflareTermsStore();
+  if (store) {
+    const record = await store.get(market, "json");
+    if (!record) return bundled;
+    if (!record || typeof record !== "object" || !("market" in record) || record.market !== market) throw new Error("Stored terms do not identify the requested market.");
+    if (bundled.length && JSON.stringify(record) !== JSON.stringify(bundled[0])) throw new Error("Stored and bundled market terms conflict.");
+    return [record];
+  }
   const storage = storageDirectory(directory);
   if (!storage) return bundled;
   const path = recordPath(storage, market);
@@ -44,6 +69,13 @@ export async function readPublishedMarketTerms(market: string, directory?: strin
 export async function publishVerifiedMarketTerms(record: MarketTermsRecord, market: { address: string; questionHash: string; rulesHash: string }, directory?: string) {
   const verified = await verifyPublishedMarketTerms([record], market);
   if (!verified) throw new Error("Terms record does not identify this market.");
+  const store = await cloudflareTermsStore();
+  if (store) {
+    const existing = await readPublishedMarketTerms(market.address, directory);
+    if (existing.length) { await verifyPublishedMarketTerms(existing, market); return { created: false }; }
+    await store.put(market.address, JSON.stringify(verified));
+    return { created: true };
+  }
   const storage = storageDirectory(directory);
   if (!storage) throw new Error("Persistent terms storage is not configured. Configure COOKIE_MARKETS_TERMS_DIR on a backed-up persistent volume.");
   const existing = await readPublishedMarketTerms(market.address, directory);

@@ -233,10 +233,9 @@ type InstructionPreview = {
 };
 
 async function waitForMarket(address: string) {
-  const market = new PublicKey(address);
   for (let attempt = 0; attempt < 15; attempt += 1) {
-    const account = await cookieChainConnection.getAccountInfo(market, "confirmed");
-    if (account?.owner.equals(COOKIE_MARKETS_PROGRAM_ID)) return;
+    const response = await fetch(`/api/protocol?market=${encodeURIComponent(address)}`, { cache: "no-store" });
+    if (response.ok) return;
     await new Promise((resolve) => window.setTimeout(resolve, 1_000));
   }
   throw new Error("The transaction was sent, but market confirmation is pending. Do not submit it again.");
