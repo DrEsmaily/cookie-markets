@@ -23,7 +23,7 @@ async function loadResolver() {
 async function protocolConfig(resolver) {
   if (await connection.getGenesisHash() !== GENESIS) throw new Error("Resolver refused a non-Cookie Chain RPC.");
   const account = await connection.getAccountInfo(CONFIG, "confirmed");
-  if (!account || !account.owner.equals(PROGRAM) || account.data.length !== 147) throw new Error("Protocol config is unavailable or invalid.");
+  if (!account || !account.owner.equals(PROGRAM) || ![147, 149].includes(account.data.length)) throw new Error("Protocol config is unavailable or invalid.");
   const configuredResolver = marketKey(account.data, 72);
   const challengePeriod = account.data.readBigInt64LE(138);
   if (!configuredResolver.equals(resolver.publicKey)) throw new Error(`Keeper is not the configured resolver. Expected ${configuredResolver.toBase58()}.`);
