@@ -1,0 +1,16 @@
+.git
+.github
+.next
+.open-next
+.wrangler
+.test-build
+.npm-cache
+node_modules
+target
+test-ledger
+.local-data
+.local-secrets
+.env*
+*-keypair.json
+*.so
+*.log

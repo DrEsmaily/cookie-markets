@@ -1,0 +1,37 @@
+name: cookie-markets
+
+services:
+  web:
+    build:
+      context: .
+    image: cookie-markets:local
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      COOKIE_CHAIN_RPC: ${COOKIE_CHAIN_RPC:-https://rpc.cookiescan.io}
+      COOKIE_MARKETS_TERMS_DIR: /data/market-terms
+      COOKIE_MARKETS_EVIDENCE_DIR: /data/resolution-evidence
+    ports:
+      - "${COOKIE_MARKETS_BIND:-127.0.0.1}:${COOKIE_MARKETS_PORT:-3100}:3000"
+    volumes:
+      - cookie-markets-data:/data
+
+  resolver:
+    profiles: ["resolver"]
+    image: cookie-markets:local
+    restart: unless-stopped
+    command: ["node", "scripts/market-keeper.mjs", "--watch"]
+    environment:
+      COOKIE_CHAIN_RPC: ${COOKIE_CHAIN_RPC:-https://rpc.cookiescan.io}
+      COOKIE_MARKETS_TERMS_DIR: /data/market-terms
+      COOKIE_MARKETS_EVIDENCE_DIR: /data/resolution-evidence
+      COOKIE_MARKETS_RESOLVER_KEYPAIR: /run/secrets/resolver-keypair.json
+    volumes:
+      - cookie-markets-data:/data
+      - ${COOKIE_MARKETS_RESOLVER_KEYPAIR:-./resolver-keypair.json}:/run/secrets/resolver-keypair.json:ro
+    depends_on:
+      web:
+        condition: service_healthy
+
+volumes:
+  cookie-markets-data:

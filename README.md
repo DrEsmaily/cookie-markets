@@ -74,6 +74,24 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
+## Install with Docker on a VPS
+
+On Ubuntu or Debian, this single command installs Docker when needed, clones CookieMarkets, builds it, and starts it on the isolated local port `3100`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DrEsmaily/cookie-markets/main/deploy/install.sh | sudo bash
+```
+
+The container restarts automatically and stores published market terms and resolution evidence in a named Docker volume, so rebuilding the image does not erase application data. By default it listens only on `127.0.0.1:3100`, allowing an existing Caddy, Nginx, or Traefik installation to provide HTTPS without changing other services.
+
+To expose a different local port:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DrEsmaily/cookie-markets/main/deploy/install.sh | sudo COOKIE_MARKETS_PORT=3200 bash
+```
+
+The optional automatic resolver is intentionally not started by the public installer because it requires the configured resolver wallet keypair. Operators can mount that key read-only and start the `resolver` Compose profile after securing and funding the wallet. Never bake the keypair into the image.
+
 In Nightly, select or add Cookie Chain with:
 
 ```text
