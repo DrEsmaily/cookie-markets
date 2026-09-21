@@ -5,6 +5,7 @@ import { COOKIE_CHAIN } from "@/lib/cookie-chain-config";
 import type { MarketTerms } from "@/lib/market-terms";
 import { formatTokenAmount } from "@/lib/token-amounts";
 import { submitPreparedTransaction } from "@/lib/nightly-transaction";
+import { readApiResponse } from "@/lib/api-response";
 
 type Preparation = { unsignedTransaction: string; feePayer: string; blockhash: string; amountBaseUnits: string; feeBaseUnits: string; lastValidBlockHeight: number; note: string };
 
@@ -31,7 +32,7 @@ export function PositionPreparationForm({ market, terms, depositsAllowed = true 
       const user = connected?.accounts[0]?.address;
       if (!user) throw new Error("Nightly did not share an account.");
       const response = await fetch(`/api/protocol?position=${encodeURIComponent(market)}&user=${encodeURIComponent(user)}`, { cache: "no-store", signal: AbortSignal.timeout(15_000) });
-      const result = await response.json();
+      const result = await readApiResponse<{ deployed?: boolean; collateralDecimals: number; position?: { user: string; market: string; collateral: { amountBaseUnits: string }; yes: { amountBaseUnits: string }; no: { amountBaseUnits: string } }; error?: string }>(response, "Position balances returned an unreadable response.");
       if (!response.ok || !result.deployed || !result.position) throw new Error(result.error ?? "Protocol position balances are unavailable.");
       if (result.position.user !== user || result.position.market !== market) throw new Error("Position response does not match the requested wallet and market.");
       setBalances({ user, collateral: formatTokenAmount(BigInt(result.position.collateral.amountBaseUnits), result.collateralDecimals), yes: formatTokenAmount(BigInt(result.position.yes.amountBaseUnits), result.collateralDecimals), no: formatTokenAmount(BigInt(result.position.no.amountBaseUnits), result.collateralDecimals), checkedAt: new Date().toLocaleTimeString() });
@@ -43,7 +44,7 @@ export function PositionPreparationForm({ market, terms, depositsAllowed = true 
     clearPreview(); setIsPreparing(true);
     try {
       const response = await fetch("/api/protocol", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ market, question, resolutionSource, resolutionRules }), signal: AbortSignal.timeout(15_000) });
-      const result = await response.json();
+      const result = await readApiResponse<{ error?: string }>(response, "Terms publication returned an unreadable response.");
       if (!response.ok) throw new Error(result.error ?? "Terms publication failed.");
       window.location.reload();
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not publish readable terms."); }
@@ -80,7 +81,7 @@ export function PositionPreparationForm({ market, terms, depositsAllowed = true 
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ market, user: account.address, action, amount, side: action === "redeem" ? side : undefined, wrapNative: action === "split", question, resolutionSource, resolutionRules }),
       });
-      const result = await response.json() as Preparation & { error?: string };
+      const result = await readApiResponse<Preparation & { error?: string }>(response, "Transaction preparation returned an unreadable response.");
       if (!response.ok || result.error) throw new Error(result.error ?? "Transaction preparation failed.");
       setPreparation(result);
     } catch (failure) {

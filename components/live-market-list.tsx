@@ -7,6 +7,7 @@ import { formatTokenAmount } from "@/lib/token-amounts";
 import type { MarketTerms } from "@/lib/market-terms";
 import { formatMarketText, formatUtcTimestamp, marketLifecycle } from "@/lib/market-lifecycle";
 import { UI_LAUNCH_UNIX_SECONDS } from "@/lib/ui-launch";
+import { readApiResponse } from "@/lib/api-response";
 
 type MarketResponse = { deployed: boolean; markets?: (VerifiedMarket & { terms?: MarketTerms; termsError?: string; yesPercent?: number; liquidity?: string })[]; collateralDecimals?: number; error?: string };
 
@@ -17,7 +18,7 @@ export function LiveMarketList() {
     async function refresh() {
       try {
         const response = await fetch("/api/protocol?markets=true", { cache: "no-store", signal: controller.signal });
-        const data = await response.json() as MarketResponse;
+        const data = await readApiResponse<MarketResponse>(response, "Live markets returned an unreadable response.");
         if (!controller.signal.aborted) setResult(response.ok ? data : { deployed: false, error: data.error ?? "Market verification failed." });
       } catch {
         if (!controller.signal.aborted) setResult({ deployed: false, error: "Live markets are unavailable. No cached markets are shown." });

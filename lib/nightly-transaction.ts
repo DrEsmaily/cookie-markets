@@ -24,15 +24,15 @@ export async function submitPreparedTransaction(input: {
   const sendFeature = wallet.features?.["solana:signAndSendTransaction"] ?? wallet.features?.["standard:signAndSendTransaction"];
   const signFeature = wallet.features?.["solana:signTransaction"] ?? wallet.features?.["standard:signTransaction"];
   let signature: string;
-  if (sendFeature && chain) {
-    const result = await sendFeature.signAndSendTransaction({ account, transaction: serialized, chain, options: { commitment: "confirmed", preflightCommitment: "confirmed", maxRetries: 3 } });
-    if (!result[0]?.signature?.length) throw new Error("Nightly did not return a transaction signature.");
-    signature = base58Encode(result[0].signature);
-  } else if (signFeature) {
+  if (signFeature) {
     const result = await signFeature.signTransaction({ account, transaction: serialized, chain, options: { preflightCommitment: "confirmed" } });
     const signed = result[0]?.signedTransaction;
     if (!signed?.length) throw new Error("Nightly did not return a signed transaction.");
     signature = await cookieChainConnection.sendRawTransaction(signed, { preflightCommitment: "confirmed", maxRetries: 3, skipPreflight: false });
+  } else if (sendFeature && chain) {
+    const result = await sendFeature.signAndSendTransaction({ account, transaction: serialized, chain, options: { commitment: "confirmed", preflightCommitment: "confirmed", maxRetries: 3 } });
+    if (!result[0]?.signature?.length) throw new Error("Nightly did not return a transaction signature.");
+    signature = base58Encode(result[0].signature);
   } else {
     throw new Error("This Nightly version cannot sign Cookie Chain transactions.");
   }

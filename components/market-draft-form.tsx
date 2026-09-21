@@ -6,7 +6,6 @@ import {
   buildCreateMarketInstruction,
   buildInitializeAmmInstruction,
   buildOpenMarketInstruction,
-  COOKIE_MARKETS_PROGRAM_ID,
   deriveMarketAddresses,
 } from "@/lib/cookie-markets-program";
 import { MarketDraft, validateMarketDraft } from "@/lib/protocol";
@@ -17,6 +16,7 @@ import { cookieChainConnection } from "@/lib/cookie-chain";
 import { COOKIE_CHAIN } from "@/lib/cookie-chain-config";
 import { buildCreateAssociatedTokenInstruction, buildSyncNativeInstruction, deriveAssociatedTokenAddress, NATIVE_MINT } from "@/lib/token-instructions";
 import { parseTokenAmount } from "@/lib/token-amounts";
+import { readApiResponse } from "@/lib/api-response";
 
 const initialDraft: MarketDraft = { question: "", resolutionSource: "", resolutionRules: "", closesAt: "", resolvesAt: "" };
 
@@ -189,7 +189,8 @@ export function MarketDraftForm() {
       setSubmissionMessage("Transaction sent. Confirming the new market on Cookie Chain…");
       await waitForMarket(preview.market);
       const publication = await fetch("/api/protocol", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ market: preview.market, question: terms.question, resolutionSource: terms.resolutionSource, resolutionRules: terms.resolutionRules }) });
-      if (!publication.ok) throw new Error(`Market is live, but public terms publication failed: ${(await publication.json() as { error?: string }).error ?? "unknown error"}. Do not recreate the market.`);
+      const publicationResult = await readApiResponse<{ error?: string }>(publication, "Public market terms could not be stored.");
+      if (!publication.ok) throw new Error(`Market is live, but public terms publication failed: ${publicationResult.error ?? "unknown error"}. Do not recreate the market.`);
       setSubmissionMessage("Market confirmed. Opening it now…");
       window.location.assign(`/markets/${preview.market}`);
     } catch (error) {
@@ -265,13 +266,13 @@ async function resolveCollateral(): Promise<{ mint?: string; decimals?: number; 
     if (!protocolResponse.ok) {
       return { message: "Protocol verification is unavailable. Collateral preparation is disabled." };
     }
-    const protocol = await protocolResponse.json() as { deployed?: boolean; collateralMint?: string; collateralDecimals?: number };
+    const protocol = await readApiResponse<{ deployed?: boolean; collateralMint?: string; collateralDecimals?: number }>(protocolResponse, "Protocol verification returned an unreadable response.");
     if (protocol.deployed && protocol.collateralMint) {
       return { mint: protocol.collateralMint, decimals: protocol.collateralDecimals, message: "Loaded from the deployed protocol config." };
     }
 
     const networkResponse = await fetch("/api/network", { cache: "no-store" });
-    const network = await networkResponse.json() as { healthy?: boolean; wrappedCookMint?: string; collateralError?: string; error?: string };
+    const network = await readApiResponse<{ healthy?: boolean; wrappedCookMint?: string; collateralError?: string; error?: string }>(networkResponse, "Network verification returned an unreadable response.");
     if (!networkResponse.ok || !network.healthy || !network.wrappedCookMint) {
       return { message: network.collateralError ?? network.error ?? "Cookie Chain collateral could not be verified." };
     }

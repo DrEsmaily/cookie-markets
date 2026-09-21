@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { formatMarketText } from "@/lib/market-lifecycle";
+import { readApiResponse } from "@/lib/api-response";
 
 type Evidence = { serialized: string; evidenceHash: string; providerUrl: string; record: { decision: { outcome: "yes" | "no" | "invalid"; reason?: string }; publishedAt: string }; note: string };
 
@@ -17,7 +18,7 @@ export function PriceEvidenceReview({ market, settlesAt }: { market: string; set
     setPending(true); setEvidence(undefined); setError(undefined);
     try {
       const response = await fetch("/api/protocol", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "collect-price-evidence", market, asset, direction, targetUsd, settlesAt }), signal: AbortSignal.timeout(30_000) });
-      const result = await response.json();
+      const result = await readApiResponse<Evidence & { error?: string }>(response, "Price evidence returned an unreadable response.");
       if (!response.ok) throw new Error(result.error ?? "Evidence collection failed.");
       setEvidence(result);
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Evidence collection failed."); }

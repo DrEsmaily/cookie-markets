@@ -5,6 +5,7 @@ import Link from "next/link";
 import { COOKIE_CHAIN } from "@/lib/cookie-chain-config";
 import { formatTokenAmount } from "@/lib/token-amounts";
 import { formatMarketText } from "@/lib/market-lifecycle";
+import { readApiResponse } from "@/lib/api-response";
 
 export type NightlyAccount = { address: string; chains?: readonly string[] };
 type WalletActivity = { signature: string; slot: number; blockTime: number | null; status: "confirmed" | "failed"; amountBaseUnits: string };
@@ -50,21 +51,21 @@ export function WalletButton() {
   const loadBalance = useCallback(async (walletAddress: string) => {
     const response = await fetch(`/api/balance/${encodeURIComponent(walletAddress)}`, { cache: "no-store" });
     if (!response.ok) return;
-    const data = await response.json() as { amount: number };
+    const data = await readApiResponse<{ amount: number }>(response, "Wallet balance returned an unreadable response.");
     setBalance(data.amount);
   }, []);
 
   const loadActivity = useCallback(async (walletAddress: string) => {
     const response = await fetch(`/api/activity/${encodeURIComponent(walletAddress)}`, { cache: "no-store" });
     if (!response.ok) return;
-    const data = await response.json() as { activity: WalletActivity[] };
+    const data = await readApiResponse<{ activity: WalletActivity[] }>(response, "Wallet activity returned an unreadable response.");
     setActivity(data.activity);
   }, []);
 
   const loadPortfolio = useCallback(async (walletAddress: string) => {
     const response = await fetch(`/api/portfolio/${encodeURIComponent(walletAddress)}`, { cache: "no-store" });
     if (!response.ok) return;
-    setPortfolio(await response.json() as { decimals: number; positions: PortfolioPosition[] });
+    setPortfolio(await readApiResponse<{ decimals: number; positions: PortfolioPosition[] }>(response, "Wallet positions returned an unreadable response."));
   }, []);
 
   const connect = useCallback(async (silent = false) => {

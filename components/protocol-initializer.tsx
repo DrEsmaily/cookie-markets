@@ -6,6 +6,7 @@ import { cookieChainConnection } from "@/lib/cookie-chain";
 import { COOKIE_CHAIN } from "@/lib/cookie-chain-config";
 import { buildInitializeProtocolInstruction, deriveConfigAddress } from "@/lib/cookie-markets-program";
 import { PROTOCOL_LIMITS } from "@/lib/protocol";
+import { readApiResponse } from "@/lib/api-response";
 
 const AUTHORITY = "DQUuBvSGVAnqcXAJs2ZEcXtkXqMcMEX7JxqcZ2Yki86a";
 const COLLATERAL_MINT = "So11111111111111111111111111111111111111112";
@@ -14,7 +15,7 @@ type Review = { fee: number; config: string; blockHeight: number };
 
 async function waitForProtocol() {
   for (let attempt = 0; attempt < 12; attempt += 1) {
-    const protocol = await fetch("/api/protocol", { cache: "no-store" }).then((response) => response.json() as Promise<{ deployed: boolean }>);
+    const protocol = await fetch("/api/protocol", { cache: "no-store" }).then((response) => readApiResponse<{ deployed: boolean }>(response, "Protocol verification returned an unreadable response."));
     if (protocol.deployed) return;
     await new Promise((resolve) => window.setTimeout(resolve, 1_000));
   }
@@ -29,7 +30,7 @@ export function ProtocolInitializer() {
 
   useEffect(() => {
     void fetch("/api/protocol", { cache: "no-store" })
-      .then(async (response) => response.json() as Promise<{ deployed: boolean }>)
+      .then((response) => readApiResponse<{ deployed: boolean }>(response, "Protocol verification returned an unreadable response."))
       .then((result) => setDeployed(result.deployed))
       .catch(() => setMessage("Could not verify the protocol configuration."));
   }, []);

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { readApiResponse } from "@/lib/api-response";
 
 type Prices = { BTC: string; ETH: string; source: string; updatedAt: string };
 
@@ -13,7 +14,7 @@ export function LiveAssetPrices() {
     async function refresh() {
       try {
         const response = await fetch("/api/prices", { cache: "no-store", signal: AbortSignal.timeout(10_000) });
-        const result = await response.json() as Prices;
+        const result = await readApiResponse<Prices>(response, "Live prices returned an unreadable response.");
         if (!response.ok) throw new Error();
         if (active) { setPrices(result); setUnavailable(false); }
       } catch { if (active) setUnavailable(true); }

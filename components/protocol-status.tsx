@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { readApiResponse } from "@/lib/api-response";
 
 type ProtocolResponse = {
   deployed: boolean;
@@ -13,7 +14,7 @@ export function ProtocolStatus() {
 
   useEffect(() => {
     void fetch("/api/protocol", { cache: "no-store" })
-      .then(async (response) => response.json() as Promise<ProtocolResponse>)
+      .then((response) => readApiResponse<ProtocolResponse>(response, "Protocol status returned an unreadable response."))
       .then(setProtocol)
       .catch(() => setProtocol({ deployed: false, error: "Protocol check failed." }));
   }, []);

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { readApiResponse } from "@/lib/api-response";
 
 type NetworkResponse = {
   healthy: boolean;
@@ -17,7 +18,7 @@ export function NetworkStatus() {
     setIsLoading(true);
     try {
       const response = await fetch("/api/network", { cache: "no-store" });
-      setNetwork(await response.json());
+      setNetwork(await readApiResponse<NetworkResponse>(response, "The network check returned an unreadable response."));
     } catch {
       setNetwork({ healthy: false, error: "Could not reach the network check." });
     } finally {

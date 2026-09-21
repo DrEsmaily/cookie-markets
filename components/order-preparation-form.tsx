@@ -5,6 +5,7 @@ import { COOKIE_CHAIN } from "@/lib/cookie-chain-config";
 import type { MarketTerms } from "@/lib/market-terms";
 import type { VerifiedAsk } from "@/lib/protocol-accounts";
 import { submitPreparedTransaction } from "@/lib/nightly-transaction";
+import { readApiResponse } from "@/lib/api-response";
 
 type Preparation = {
   unsignedTransaction: string; order: string; sharesBaseUnits: string; maximumDebitBaseUnits?: string; minimumProceedsBaseUnits?: string;
@@ -41,7 +42,7 @@ export function OrderPreparationForm({ market, terms, tradingAllowed = true }: {
     async function discover() {
       try {
         const response = await fetch(`/api/protocol?${orderType === "bid" ? "bids" : "asks"}=${encodeURIComponent(market)}`, { signal: controller.signal, cache: "no-store" });
-        const result = await response.json() as { asks?: VerifiedAsk[]; bids?: VerifiedAsk[]; error?: string };
+        const result = await readApiResponse<{ asks?: VerifiedAsk[]; bids?: VerifiedAsk[]; error?: string }>(response, "Order discovery returned an unreadable response.");
         const records = orderType === "bid" ? result.bids : result.asks;
         if (!response.ok || result.error || !records) throw new Error(result.error ?? "Verified order discovery is unavailable.");
         setAsks(records);
@@ -98,7 +99,7 @@ export function OrderPreparationForm({ market, terms, tradingAllowed = true }: {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ market, user: accounts[0].address, action, orderType, order, amount, maximumDebit, minimumProceeds: maximumDebit, nonce, side, price, expiresAt: action === "place" ? Math.floor(new Date(expiresAt).getTime() / 1000).toString() : undefined, wrapNative: (orderType === "ask" ? action === "fill" : action === "place") && wrapNative, question, resolutionSource, resolutionRules }),
       });
-      const result = await response.json() as Preparation & { error?: string };
+      const result = await readApiResponse<Preparation & { error?: string }>(response, "Trade preparation returned an unreadable response.");
       if (!response.ok || result.error) throw new Error(result.error ?? "Trade preparation failed.");
       if (wallet.genesisHash !== COOKIE_CHAIN.genesisHash) throw new Error("Wallet network changed. Prepare again.");
       setPreparation(result);

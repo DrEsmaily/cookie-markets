@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { PublicKey, Transaction } from "@solana/web3.js";
 import { buildUpdateProtocolInstruction } from "@/lib/cookie-markets-program";
 import { cookieChainConnection } from "@/lib/cookie-chain";
+import { readApiResponse } from "@/lib/api-response";
 
 const KEEPER = "hNnAqtwMY5HzMsM6BJRJKzmoyNfMg4Q3fp7HFNdwZ7C";
 
@@ -16,7 +17,7 @@ export function ResolverSetup() {
 
   async function refresh() {
     const response = await fetch("/api/protocol", { cache: "no-store" });
-    const result = await response.json() as Protocol & { error?: string };
+    const result = await readApiResponse<Protocol & { error?: string }>(response, "Protocol configuration returned an unreadable response.");
     if (!response.ok || !result.admin) throw new Error(result.error ?? "Protocol configuration is unavailable.");
     setProtocol(result);
     setMessage(result.resolver === KEEPER && result.challengePeriod === "0" ? "Automatic immediate resolution is configured." : "One wallet approval is required to enable automatic immediate resolution.");

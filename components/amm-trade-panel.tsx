@@ -1,13 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import { submitPreparedTransaction } from "@/lib/nightly-transaction";
 import { formatTokenAmount } from "@/lib/token-amounts";
 import { parseTokenAmount } from "@/lib/token-amounts";
 import { quoteWholeShares } from "@/lib/amm-pool";
+import { readApiResponse } from "@/lib/api-response";
+import { cookieChainConnection } from "@/lib/cookie-chain";
+import { buildBuyFromAmmInstruction } from "@/lib/cookie-markets-program";
+import { buildCreateAssociatedTokenInstruction, buildSyncNativeInstruction, deriveAssociatedTokenAddress, NATIVE_MINT } from "@/lib/token-instructions";
 
 type PoolState = {
   creator: string;
+  collateralMint: string;
+  yesMint: string;
+  noMint: string;
+  vault: string;
   status: string;
   outcome: string;
   decimals: number;
@@ -41,7 +50,7 @@ export function AmmTradePanel({ market }: { market: string }) {
 
   const refresh = useCallback(async () => {
     const response = await fetch(`/api/amm?market=${encodeURIComponent(market)}`, { cache: "no-store" });
-    const data = await response.json() as PoolState & { error?: string };
+    const data = await readApiResponse<PoolState & { error?: string }>(response, "The live pool returned an unreadable response. Please retry.");
     if (!response.ok) throw new Error(data.error ?? "Pool is unavailable.");
     setPool(data);
     setMessage("");
@@ -58,7 +67,7 @@ export function AmmTradePanel({ market }: { market: string }) {
 
   const refreshPosition = useCallback(async (address: string) => {
     const response = await fetch(`/api/protocol?position=${encodeURIComponent(market)}&user=${encodeURIComponent(address)}`, { cache: "no-store" });
-    const data = await response.json() as { position?: WalletPosition };
+    const data = await readApiResponse<{ position?: WalletPosition }>(response, "Your wallet position could not be read.");
     if (response.ok && data.position) setPosition(data.position);
   }, [market]);
 
@@ -84,15 +93,11 @@ export function AmmTradePanel({ market }: { market: string }) {
       const claimingPosition = action === "claimYes" || action === "claimNo";
       const claimSide = action === "claimYes" ? "yes" : "no";
       const claimAmount = claimSide === "yes" ? yesHeld : noHeld;
-      const response = await fetch(claimingPosition ? "/api/positions/prepare" : "/api/amm", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(claimingPosition
+      const prepared = action === "buy"
+        ? await prepareBuyTransaction(pool, market, address, side, amount)
+        : await prepareServerTransaction(claimingPosition ? "/api/positions/prepare" : "/api/amm", claimingPosition
           ? { action: "redeem", market, user: address, side: claimSide, amount: display(claimAmount.toString(), pool.decimals) }
-          : { action, market, user: address, side, amount }),
-      });
-      const prepared = await response.json() as Prepared & { error?: string };
-      if (!response.ok) throw new Error(prepared.error ?? "The transaction could not be prepared.");
+          : { action, market, user: address, side, amount });
       setMessage("Simulation passed. Approve once in Nightly.");
       const signature = await submitPreparedTransaction(prepared);
       setMessage(claimingPosition
@@ -140,4 +145,61 @@ export function AmmTradePanel({ market }: { market: string }) {
       {message ? <p className="amm-message" role="status">{message}</p> : null}
     </div>
   );
+}
+
+async function prepareServerTransaction(path: string, body: Record<string, unknown>) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const prepared = await readApiResponse<Prepared & { error?: string }>(response, "The transaction service is temporarily unavailable. Please retry.");
+  if (!response.ok) throw new Error(prepared.error ?? "The transaction could not be prepared.");
+  return prepared;
+}
+
+async function prepareBuyTransaction(pool: PoolState, market: string, userAddress: string, side: "yes" | "no", amount: string): Promise<Prepared> {
+  if (!/^\d+$/.test(amount) || amount === "0") throw new Error("Enter a whole number of shares.");
+  const user = new PublicKey(userAddress);
+  const marketAddress = new PublicKey(market);
+  const creator = new PublicKey(pool.creator);
+  const collateralMint = new PublicKey(pool.collateralMint);
+  const yesMint = new PublicKey(pool.yesMint);
+  const noMint = new PublicKey(pool.noMint);
+  const vault = new PublicKey(pool.vault);
+  const sharesOut = parseTokenAmount(amount, pool.decimals);
+  const quote = quoteWholeShares(side, sharesOut, BigInt(pool.liquidity), BigInt(pool.yesReserve), BigInt(pool.noReserve));
+  const userCollateral = deriveAssociatedTokenAddress(collateralMint, user);
+  const userYes = deriveAssociatedTokenAddress(yesMint, user);
+  const userNo = deriveAssociatedTokenAddress(noMint, user);
+  const creatorCollateral = deriveAssociatedTokenAddress(collateralMint, creator);
+  const latest = await cookieChainConnection.getLatestBlockhash("confirmed");
+  const transaction = new Transaction({ feePayer: user, recentBlockhash: latest.blockhash }).add(
+    buildCreateAssociatedTokenInstruction(user, collateralMint),
+    buildCreateAssociatedTokenInstruction(user, yesMint),
+    buildCreateAssociatedTokenInstruction(user, noMint),
+    buildCreateAssociatedTokenInstruction(creator, collateralMint, user),
+  );
+  if (collateralMint.equals(NATIVE_MINT)) transaction.add(
+    SystemProgram.transfer({ fromPubkey: user, toPubkey: userCollateral, lamports: quote.grossInput }),
+    buildSyncNativeInstruction(userCollateral),
+  );
+  transaction.add(await buildBuyFromAmmInstruction({
+    market: marketAddress, creator, collateralMint, yesMint, noMint, vault,
+    creatorCollateral, buyerCollateral: userCollateral, buyerYes: userYes, buyerNo: userNo,
+    buyer: user, side, sharesOut, maximumTotalInput: quote.maximumTotalInput,
+  }));
+  const simulation = await cookieChainConnection.simulateTransaction(transaction);
+  if (simulation.value.err) throw new Error("Transaction simulation failed. Nothing was signed or sent.");
+  return {
+    unsignedTransaction: toBase64(transaction.serialize({ requireAllSignatures: false, verifySignatures: false })),
+    feePayer: userAddress,
+    blockhash: latest.blockhash,
+    lastValidBlockHeight: latest.lastValidBlockHeight,
+    quote: { sharesOut: sharesOut.toString(), fee: quote.fee.toString() },
+  };
+}
+
+function toBase64(value: Uint8Array) {
+  return btoa(Array.from(value, (byte) => String.fromCharCode(byte)).join(""));
 }

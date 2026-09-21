@@ -36,6 +36,10 @@ export async function GET(request: Request) {
     return NextResponse.json({
       market: state.market.address,
       creator: state.market.creator,
+      collateralMint: state.market.collateralMint,
+      yesMint: state.market.yesMint,
+      noMint: state.market.noMint,
+      vault: state.market.vault,
       status: state.market.status,
       outcome: state.market.outcome,
       closesAt: state.market.closesAt,
