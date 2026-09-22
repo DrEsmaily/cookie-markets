@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/DrEsmaily/cookie-markets/actions/workflows/ci.yml/badge.svg)](https://github.com/DrEsmaily/cookie-markets/actions/workflows/ci.yml)
 
-# Where Predictions Become Markets
-# [Open the live Cookie.Markets](https://cookie.markets)
+## Where Predictions Become Markets
+### [Open the live Cookie.Markets](https://cookie.markets)
 
 CookieMarkets is an on-chain prediction-market protocol and consumer application built for Cookie Chain. Anyone can launch a clearly defined market, provide its initial COOK liquidity, and earn that market's liquidity-provider fees. Traders take simple YES or NO positions and can profit when their prediction is correct. Market creation, trading, custody, settlement, refunds, and claims are enforced by the deployed program rather than by a hidden application balance.
 
