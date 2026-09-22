@@ -176,19 +176,23 @@ export function MarketDraftForm() {
       const chain = account.chains?.find((value) => value.startsWith("solana:")) as `${string}:${string}` | undefined;
       const sendFeature = wallet.features?.["solana:signAndSendTransaction"] ?? wallet.features?.["standard:signAndSendTransaction"];
       const signFeature = wallet.features?.["solana:signTransaction"] ?? wallet.features?.["standard:signTransaction"];
+      let signature: string;
       if (signFeature) {
         const result = await signFeature.signTransaction({ account, transaction: serialized, chain, options: { preflightCommitment: "confirmed" } });
         const signed = result[0]?.signedTransaction;
         if (!signed?.length) throw new Error("Nightly did not return a signed transaction.");
         setSubmissionMessage("Signed successfully. Sending the market transaction to Cookie Chain…");
-        await cookieChainConnection.sendRawTransaction(signed, { preflightCommitment: "confirmed", maxRetries: 3, skipPreflight: false });
+        signature = await cookieChainConnection.sendRawTransaction(signed, { preflightCommitment: "confirmed", maxRetries: 3, skipPreflight: false });
       } else if (sendFeature && chain) {
         const result = await sendFeature.signAndSendTransaction({ account, transaction: serialized, chain, options: { commitment: "confirmed", preflightCommitment: "confirmed", maxRetries: 3 } });
         if (!result[0]?.signature?.length) throw new Error("Nightly did not return a transaction signature.");
+        signature = base58Encode(result[0].signature);
       } else throw new Error("Nightly transaction signing is unavailable.");
       setSubmissionMessage("Transaction sent. Confirming the new market on Cookie Chain…");
-      await waitForMarket(preview.market);
-      const publication = await fetch("/api/protocol", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ market: preview.market, question: terms.question, resolutionSource: terms.resolutionSource, resolutionRules: terms.resolutionRules }) });
+      const confirmation = await withTimeout(cookieChainConnection.confirmTransaction({ signature, blockhash: latest.blockhash, lastValidBlockHeight: latest.lastValidBlockHeight }, "confirmed"), 60_000, "Cookie Chain confirmation is taking longer than expected. The transaction was sent; do not submit it again.");
+      if (confirmation.value.err) throw new Error("Cookie Chain rejected the signed market transaction.");
+      setSubmissionMessage("Market confirmed. Publishing its settlement terms…");
+      const publication = await withTimeout(fetch("/api/protocol", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ market: preview.market, question: terms.question, resolutionSource: terms.resolutionSource, resolutionRules: terms.resolutionRules }) }), 30_000, "The market is live, but publishing its terms timed out. Do not recreate it; retry from the downloaded terms file.");
       const publicationResult = await readApiResponse<{ error?: string }>(publication, "Public market terms could not be stored.");
       if (!publication.ok) throw new Error(`Market is live, but public terms publication failed: ${publicationResult.error ?? "unknown error"}. Do not recreate the market.`);
       setSubmissionMessage("Market confirmed. Opening it now…");
@@ -238,13 +242,34 @@ type InstructionPreview = {
   blockHeight: number;
 };
 
-async function waitForMarket(address: string) {
-  for (let attempt = 0; attempt < 15; attempt += 1) {
-    const response = await fetch(`/api/protocol?market=${encodeURIComponent(address)}`, { cache: "no-store" });
-    if (response.ok) return;
-    await new Promise((resolve) => window.setTimeout(resolve, 1_000));
+async function withTimeout<T>(promise: Promise<T>, milliseconds: number, message: string): Promise<T> {
+  let timeout: number | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => { timeout = window.setTimeout(() => reject(new Error(message)), milliseconds); }),
+    ]);
+  } finally {
+    if (timeout !== undefined) window.clearTimeout(timeout);
   }
-  throw new Error("The transaction was sent, but market confirmation is pending. Do not submit it again.");
+}
+
+function base58Encode(bytes: Uint8Array) {
+  const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  const digits = [0];
+  for (const byte of bytes) {
+    let carry = byte;
+    for (let index = 0; index < digits.length; index += 1) {
+      carry += digits[index] << 8;
+      digits[index] = carry % 58;
+      carry = Math.floor(carry / 58);
+    }
+    while (carry > 0) { digits.push(carry % 58); carry = Math.floor(carry / 58); }
+  }
+  let result = "";
+  for (let index = 0; index < bytes.length - 1 && bytes[index] === 0; index += 1) result += "1";
+  for (let index = digits.length - 1; index >= 0; index -= 1) result += alphabet[digits[index]];
+  return result;
 }
 
 function randomUnsigned64(): bigint {

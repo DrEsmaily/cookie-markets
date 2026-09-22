@@ -8,10 +8,22 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
+FROM node:22-bookworm-slim AS resolver
+WORKDIR /app
+ENV NODE_ENV=production
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+COPY scripts/market-keeper.mjs ./scripts/market-keeper.mjs
+RUN groupadd --system --gid 1001 nodejs \
+  && useradd --system --uid 1001 --gid nodejs nextjs
+USER nextjs
+CMD ["node", "scripts/market-keeper.mjs", "--watch"]
+
 FROM node:22-bookworm-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV HOME=/tmp
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 ENV COOKIE_MARKETS_TERMS_DIR=/data/market-terms
@@ -24,8 +36,6 @@ RUN groupadd --system --gid 1001 nodejs \
 
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-COPY --from=dependencies --chown=nextjs:nodejs /app/node_modules ./node_modules
-COPY --from=builder --chown=nextjs:nodejs /app/scripts/market-keeper.mjs ./scripts/market-keeper.mjs
 
 USER nextjs
 EXPOSE 3000

@@ -18,7 +18,10 @@ services:
 
   resolver:
     profiles: ["resolver"]
-    image: cookie-markets:local
+    build:
+      context: .
+      target: resolver
+    image: cookie-markets-resolver:local
     restart: unless-stopped
     command: ["node", "scripts/market-keeper.mjs", "--watch"]
     environment:
