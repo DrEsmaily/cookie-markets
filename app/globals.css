@@ -24,6 +24,17 @@ h1 { max-width: 800px; margin: 0; font-size: clamp(48px, 8vw, 92px); letter-spac
 .back-link { font-size: 13px; color: var(--muted); }.market-detail { display: grid; grid-template-columns: minmax(0, 1fr) 350px; gap: 70px; padding: 90px 0 70px; }.detail-main h1 { font-size: clamp(42px, 6vw, 70px); }.probability { display: flex; align-items: baseline; gap: 12px; margin-top: 50px; }.probability strong { font-size: 52px; letter-spacing: -3px; }.probability span { color: var(--muted); font-size: 13px; }.detail-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 38px; }.detail-stats div { border-top: 1px solid var(--line); padding-top: 13px; }.detail-stats span, .detail-stats strong { display: block; }.detail-stats span { color: var(--muted); font-size: 11px; margin-bottom: 7px; }.detail-stats strong { font-size: 13px; }.trade-panel { align-self: start; background: white; border: 1px solid var(--line); border-radius: 9px; padding: 24px; }.trade-panel h2 { margin: 0 0 22px; }.outcome-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }.outcome-buttons button { border: 1px solid var(--line); background: var(--paper); padding: 12px; border-radius: 5px; font-weight: bold; }.trade-panel label { display: block; font-size: 12px; color: var(--muted); margin-top: 22px; }.trade-panel input { width: 100%; margin-top: 7px; padding: 13px; border: 1px solid var(--line); border-radius: 5px; background: #f1efe9; }.disabled-action { width: 100%; margin-top: 14px; padding: 13px; border: 0; border-radius: 5px; background: #d7d4cc; color: #77736c; }.trade-panel > p:last-child { font-size: 11px; color: var(--muted); line-height: 1.4; }.resolution-card { border-top: 1px solid var(--line); padding: 60px 0; }.resolution-card h2 { font-size: 30px; }.resolution-card dl { max-width: 780px; margin: 30px 0 0; }.resolution-card dl div { display: grid; grid-template-columns: 170px 1fr; border-top: 1px solid var(--line); padding: 18px 0; }.resolution-card dt { color: var(--muted); font-size: 12px; }.resolution-card dd { margin: 0; line-height: 1.5; font-size: 14px; }
 .create-layout { display: grid; grid-template-columns: minmax(0, .85fr) minmax(440px, 1fr); gap: 90px; padding: 85px 0; }.create-intro { position: sticky; top: 40px; align-self: start; }.create-intro h1 { font-size: clamp(42px, 5vw, 66px); }.draft-form { background: white; border: 1px solid var(--line); border-radius: 9px; padding: 28px; }.form-field { display: block; margin-bottom: 21px; }.form-field > span { display: block; font-size: 12px; font-weight: bold; margin-bottom: 8px; }.form-field input, .form-field textarea { width: 100%; border: 1px solid var(--line); border-radius: 5px; padding: 12px; background: #fcfbf8; font: inherit; font-size: 14px; }.form-field textarea { resize: vertical; line-height: 1.45; }.form-field small, .form-error { display: block; color: #a33b2e; font-size: 11px; margin-top: 6px; }.date-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }.form-action { border: 0; cursor: pointer; }.draft-ready { background: #eef8cd; border: 1px solid #cae472; border-radius: 5px; padding: 14px; margin-top: 18px; }.draft-ready strong { font-size: 13px; }.draft-ready p { color: #56602f; font-size: 11px; line-height: 1.4; margin: 6px 0 0; }.draft-ready .secondary-action { margin-top: 12px; cursor: pointer; }.instruction-preview { margin: 1rem 0 0; display: grid; gap: .55rem; }.instruction-preview div { display: grid; grid-template-columns: 7rem minmax(0, 1fr); gap: 1rem; }.instruction-preview dt { color: var(--muted); }.instruction-preview dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .8rem; }
 .live-prices { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }.live-prices div { background: #171719; color: white; border-radius: 8px; padding: 14px; display: flex; justify-content: space-between; gap: 12px; }.live-prices span { color: #b7b7b7; font-size: 12px; }.live-prices small { grid-column: 1 / -1; color: var(--muted); }
+.create-price-panel { margin-bottom: 14px; }
+.create-price-panel .live-prices { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; }
+.create-price-panel .live-price-card { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; min-width: 0; padding: 14px; }
+.create-price-panel .asset-icon { width: 32px; height: 32px; }
+.create-price-panel .asset-pair { min-width: 0; }
+.create-price-panel .live-price-card > strong { grid-column: 1 / -1; min-width: 0; margin-top: 12px; overflow: hidden; font-size: clamp(22px, 3.2vw, 32px); line-height: 1.05; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.create-price-panel .price-change { grid-column: 1 / -1; display: flex; gap: 5px; margin-top: 7px; color: var(--lime); font-size: 11px; white-space: nowrap; }
+.create-price-panel .price-change b { font: inherit; }.create-price-panel .price-change em { color: #b7b9b9; font-style: normal; }
+.create-price-panel .price-change.negative b { color: #ff9b84; }
+.create-price-panel .price-sparkline { display: none; }
+.create-price-panel .live-prices > small { padding: 0 2px; }
 @media (max-width: 800px) { .create-layout { grid-template-columns: 1fr; gap: 28px; padding: 35px 0; }.create-intro { position: static; }.draft-form { padding: 20px; }.live-prices { grid-template-columns: 1fr; }.live-prices small { grid-column: auto; } }
 .form-field .field-note { color: var(--muted); }
 @media (max-width: 900px) { .market-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -69,33 +80,57 @@ button:disabled { cursor: not-allowed; }
 .hero-copy { max-width: 920px; margin-inline: auto; text-align: center; }
 .hero-copy h1 { max-width: 920px; font-size: clamp(46px, 6vw, 72px); line-height: 1.03; letter-spacing: -.06em; }
 .hero-copy .lede { max-width: 720px; margin: 28px auto 0; }
-.hero-board { position: relative; width: min(100%, 820px); margin-inline: auto; padding: clamp(22px, 3vw, 32px); overflow: hidden; border: 1px solid #30363a; border-radius: 28px; background: linear-gradient(145deg, #11171a, #0c1114 70%); color: white; box-shadow: 0 28px 70px rgba(24,24,20,.18); }
+.hero-board { position: relative; width: min(100%, 820px); margin-inline: auto; padding: clamp(28px, 3.5vw, 36px); overflow: hidden; border: 1px solid #30363a; border-radius: 28px; background: linear-gradient(145deg, #11171a, #0c1114 70%); color: white; box-shadow: 0 28px 70px rgba(24,24,20,.18); }
 .hero-board::before { position: absolute; content: ""; width: 260px; height: 260px; top: -145px; right: -85px; border-radius: 50%; background: #9dc31b; filter: blur(55px); opacity: .42; }
-.board-heading { position: relative; display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; color: #f1f2ee; font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .23em; }
-.board-heading strong { display: inline-flex; align-items: center; gap: 8px; color: #101416; background: var(--lime); padding: 10px 16px; border-radius: 999px; font-size: 11px; letter-spacing: .12em; }
-.board-heading strong::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #171719; }
-.hero-board .live-prices { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 0; }
-.hero-board .live-price-card { position: relative; display: grid; grid-template-columns: 42px 1fr; align-items: center; min-width: 0; padding: 18px 18px 14px; overflow: hidden; border: 1px solid #30373b; border-radius: 17px; background: rgba(27,33,36,.88); }
-.asset-icon { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 50%; color: white; font-size: 22px; font-weight: 800; }
-.asset-icon-btc { background: #f79335; }.asset-icon-eth { background: #59607e; font-size: 17px; }
-.hero-board .asset-pair { color: #a8aaab; font-size: 12px; letter-spacing: .04em; }
-.hero-board .live-prices strong { grid-column: 1 / -1; max-width: 100%; margin-top: 12px; overflow: hidden; font-size: clamp(25px, 3vw, 40px); letter-spacing: -.045em; text-overflow: ellipsis; white-space: nowrap; }
-.price-sparkline { grid-column: 1 / -1; width: 100%; height: 48px; margin-top: 10px; overflow: visible; }
-.hero-board .live-prices small { grid-column: 1 / -1; padding: 2px 5px 0; color: #999; font-size: 11px; }
-.settlement-card { position: relative; display: flex; justify-content: space-between; align-items: center; min-height: 134px; margin-top: 20px; padding: 22px; overflow: hidden; border: 1px solid #56643a; border-radius: 16px; background: linear-gradient(120deg, rgba(39,49,34,.92), rgba(28,37,28,.86)); }
+.board-heading { position: relative; display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; color: #f1f2ee; font-size: 15px; font-weight: 800; text-transform: uppercase; letter-spacing: .2em; }
+.board-heading strong { display: inline-flex; align-items: center; gap: 9px; color: #101416; background: var(--lime); padding: 12px 19px; border-radius: 999px; font-size: 12px; letter-spacing: .1em; }
+.board-heading strong::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #171719; }
+.hero-board .live-prices { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 0; }
+.hero-board .live-price-card { position: relative; display: grid; grid-template-columns: 52px 1fr; align-items: center; min-width: 0; min-height: 244px; padding: 24px 23px 20px; overflow: hidden; border: 1px solid #30373b; border-radius: 18px; background: rgba(27,33,36,.88); }
+.asset-icon { display: grid; width: 48px; height: 48px; place-items: center; border-radius: 50%; color: white; font-size: 28px; font-weight: 800; }
+.asset-icon svg { width: 100%; height: 100%; overflow: visible; }
+.asset-icon-btc { background: #f79335; box-shadow: inset 0 1px 1px rgba(255,255,255,.22); }
+.asset-icon-btc svg text { fill: #fff; font-family: Georgia, "Times New Roman", serif; font-size: 43px; font-weight: 700; }
+.asset-icon-eth { background: radial-gradient(circle at 35% 25%, #7880aa, #424968 76%); box-shadow: inset 0 1px 1px rgba(255,255,255,.17); }
+.hero-board .asset-pair { color: #c0c3c4; font-size: 15px; letter-spacing: .03em; }
+.hero-board .live-prices strong { grid-column: 1 / -1; min-width: 0; margin-top: 22px; font-size: clamp(32px, 5.1vw, 52px); letter-spacing: -.06em; line-height: 1; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.price-change { grid-column: 1 / -1; display: flex; align-items: center; gap: 7px; margin-top: 8px; color: var(--lime); font-size: 15px; font-weight: 700; white-space: nowrap; }
+.price-change b { font: inherit; }.price-change em { color: #b7b9b9; font-style: normal; font-weight: 500; }.price-change.negative b { color: #ff9b84; }
+.price-sparkline { grid-column: 1 / -1; width: 100%; height: 68px; margin-top: 17px; overflow: visible; }
+.hero-board .live-prices small { grid-column: 1 / -1; padding: 6px 7px 0; color: #b4b6b6; font-size: 14px; }
+.settlement-card { position: relative; display: flex; justify-content: space-between; align-items: center; min-height: 180px; margin-top: 28px; padding: 28px; overflow: hidden; border: 1px solid #56643a; border-radius: 18px; background: linear-gradient(120deg, rgba(39,49,34,.92), rgba(28,37,28,.86)); }
 .settlement-card::after { position: absolute; content: ""; right: -30px; bottom: -80px; width: 220px; height: 180px; border-radius: 50%; background: #87a91a; filter: blur(44px); opacity: .38; }
 .settlement-card > div:first-child { position: relative; z-index: 1; display: grid; gap: 8px; }
-.settlement-card span { color: #b8bdba; font-size: 11px; letter-spacing: .17em; text-transform: uppercase; }
-.settlement-card strong { font-size: clamp(22px, 3vw, 34px); letter-spacing: -.04em; }
-.settlement-card small { color: #a8aaa5; font-size: 12px; }
-.cookie-stack { position: relative; z-index: 1; width: 120px; height: 82px; flex: 0 0 120px; }
-.cookie-stack i { position: absolute; font-style: normal; font-size: 58px; filter: drop-shadow(0 8px 8px rgba(0,0,0,.35)); }
-.cookie-stack i:nth-child(1) { left: 3px; top: 9px; transform: rotate(-12deg); }.cookie-stack i:nth-child(2) { left: 34px; top: 0; transform: rotate(8deg); }.cookie-stack i:nth-child(3) { right: 0; top: 22px; transform: rotate(18deg); }
-.board-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
-.board-facts div { display: flex; align-items: center; gap: 14px; padding: 17px; border: 1px solid #2c3336; border-radius: 14px; background: rgba(24,30,33,.72); }
-.board-facts b { display: grid; width: 42px; height: 42px; place-items: center; flex: 0 0 42px; border-radius: 50%; background: rgba(216,255,69,.09); color: var(--lime); font-size: 23px; }
-.board-facts p { display: grid; gap: 2px; margin: 0; }.board-facts strong { font-size: 19px; }.board-facts span { color: #999; font-size: 11px; }
-.hero-board > p { margin: 22px 4px 0; color: #919596; font-size: 11px; line-height: 1.55; }
+.settlement-card span { color: #d0d4d1; font-size: 14px; letter-spacing: .16em; text-transform: uppercase; }
+.settlement-card strong { font-size: clamp(34px, 3.5vw, 44px); letter-spacing: -.05em; }
+.settlement-card small { color: #c1c4bf; font-size: 15px; }
+.cookie-stack { position: relative; z-index: 1; width: 180px; height: 138px; flex: 0 0 180px; object-fit: contain; filter: drop-shadow(0 10px 12px rgba(0,0,0,.3)); }
+.board-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; }
+.board-facts div { display: flex; align-items: center; gap: 17px; min-height: 116px; padding: 20px; border: 1px solid #2c3336; border-radius: 16px; background: rgba(24,30,33,.72); }
+.board-facts b { display: grid; width: 56px; height: 56px; place-items: center; flex: 0 0 56px; border-radius: 50%; background: rgba(216,255,69,.09); color: var(--lime); font-size: 30px; }
+.board-facts p { display: grid; gap: 4px; margin: 0; }.board-facts strong { font-size: 26px; }.board-facts span { color: #b5b7b7; font-size: 14px; }
+.hero-board > p { margin: 28px 7px 0; color: #c0c2c1; font-size: 14px; line-height: 1.55; }
+
+@media (min-width: 768px) {
+  .hero-board { padding: 26px; border-radius: 24px; }
+  .board-heading { margin-bottom: 20px; font-size: 14px; }
+  .board-heading strong { padding: 10px 16px; }
+  .hero-board .live-prices { gap: 12px; }
+  .hero-board .live-price-card { min-height: 198px; padding: 18px; }
+  .hero-board .live-prices strong { margin-top: 15px; font-size: clamp(29px, 3vw, 42px); }
+  .price-change { margin-top: 6px; font-size: 13px; }
+  .price-sparkline { height: 48px; margin-top: 12px; }
+  .hero-board .live-prices small { padding-top: 2px; font-size: 13px; }
+  .settlement-card { min-height: 150px; margin-top: 20px; padding: 22px; }
+  .settlement-card strong { font-size: clamp(29px, 2.8vw, 38px); }
+  .settlement-card small { font-size: 13px; }
+  .cookie-stack { width: 142px; height: 108px; flex-basis: 142px; }
+  .board-facts { gap: 12px; margin-top: 14px; }
+  .board-facts div { min-height: 88px; gap: 12px; padding: 14px; }
+  .board-facts b { width: 44px; height: 44px; flex-basis: 44px; font-size: 24px; }
+  .board-facts strong { font-size: 22px; }.board-facts span { font-size: 13px; }
+  .hero-board > p { margin-top: 18px; font-size: 13px; }
+}
 
 .market-section { padding: clamp(56px, 7vw, 82px) 0; }
 .section-heading h2 { font-size: clamp(32px, 4vw, 48px); letter-spacing: -.055em; }
@@ -174,7 +209,7 @@ button:disabled { cursor: not-allowed; }
   .hero-copy h1 { font-size: clamp(50px, 16vw, 72px); }
   .hero-copy .lede { font-size: 17px; }
   .hero-board { padding: 18px; border-radius: 18px; }
-  .hero-board .live-prices { grid-template-columns: 1fr 1fr; }
+  .hero-board .live-prices { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .market-card { min-height: 285px; padding: 19px; }
   .market-key-stats { grid-template-columns: 1fr; }
   .market-stage { align-items: flex-start; flex-direction: column; }
@@ -185,11 +220,21 @@ button:disabled { cursor: not-allowed; }
 }
 @media (max-width: 520px) {
   .hero-copy h1 { font-size: clamp(38px, 11.5vw, 56px); }
-  .hero-board .live-prices { grid-template-columns: 1fr; }
-  .hero-board .live-price-card { min-height: 174px; }
-  .settlement-card { align-items: flex-start; min-height: 172px; }
+  .hero-board .live-prices { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .hero-board .live-price-card { grid-template-columns: 1fr; min-height: 192px; padding: 16px; }
+  .hero-board .asset-pair { margin-top: 8px; font-size: 12px; }
+  .hero-board .live-prices strong { margin-top: 12px; font-size: clamp(23px, 7.15vw, 32px); }
+  .price-change { gap: 4px; margin-top: 5px; font-size: 11px; }
+  .price-sparkline { height: 46px; margin-top: 12px; }
+  .settlement-card { align-items: flex-start; min-height: 180px; padding: 24px; }
   .settlement-card strong { max-width: 210px; }
   .settlement-card small { max-width: 180px; line-height: 1.4; }
-  .cookie-stack { position: absolute; right: 10px; bottom: 8px; transform: scale(.72); transform-origin: right bottom; }
+  .cookie-stack { position: absolute; right: 10px; bottom: 10px; width: 140px; height: 108px; }
   .board-facts { grid-template-columns: 1fr; }
+  .create-price-panel .live-prices { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .create-price-panel .live-price-card { grid-template-columns: 28px minmax(0, 1fr); padding: 12px 10px; }
+  .create-price-panel .asset-icon { width: 26px; height: 26px; }
+  .create-price-panel .asset-pair { font-size: 10px; }
+  .create-price-panel .live-price-card > strong { font-size: clamp(18px, 5.8vw, 25px); }
+  .create-price-panel .price-change { font-size: 10px; }
 }

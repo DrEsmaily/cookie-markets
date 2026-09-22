@@ -1,7 +1,9 @@
+import Image from "next/image";
 import { LiveMarketList } from "@/components/live-market-list";
 import { LiveAssetPrices } from "@/components/live-asset-prices";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
+import settlementCookies from "@/public/images/settlement-cookies-v1.png";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +23,7 @@ export default function Home() {
           <LiveAssetPrices />
           <div className="settlement-card">
             <div><span>Settlement</span><strong>1 winning share = 1 COOK</strong><small>Settle transparently on Cookie Chain.</small></div>
-            <div className="cookie-stack" aria-hidden="true"><i>🍪</i><i>🍪</i><i>🍪</i></div>
+            <Image className="cookie-stack" src={settlementCookies} alt="" aria-hidden="true" priority />
           </div>
           <div className="board-facts">
             <div><b aria-hidden="true">%</b><p><strong>1%</strong><span>creator fee</span></p></div>
