@@ -4,9 +4,9 @@ import { cookieChainConnection } from "@/lib/cookie-chain";
 import { COOKIE_CHAIN } from "@/lib/cookie-chain-config";
 import { decodeMarketAccount } from "@/lib/protocol-accounts";
 import { readVerifiedProtocol } from "@/lib/protocol-reader";
-import { decodeAmmPool, deriveAmmAddresses, ammProbabilityBps, creatorClaimable, maximumAmmTrade, quoteWholeShares } from "@/lib/amm-pool";
-import { buildBuyFromAmmInstruction, buildClaimAmmSettlementInstruction } from "@/lib/cookie-markets-program";
-import { buildCreateAssociatedTokenInstruction, buildSyncNativeInstruction, buildUnwrapNativeInstruction, deriveAssociatedTokenAddress, NATIVE_MINT } from "@/lib/token-instructions";
+import { decodeAmmPool, decodeMarketAccounting, deriveAmmAddresses, ammProbabilityBps, creatorClaimable, maximumAmmTrade, quoteWholeShares } from "@/lib/amm-pool";
+import { buildBuyFromAmmInstruction, buildClaimAmmSettlementInstruction, TOKEN_PROGRAM_ID } from "@/lib/cookie-markets-program";
+import { buildCloseTokenAccountInstruction, buildCreateAssociatedTokenInstruction, buildInitializeTokenAccountInstruction, buildSyncNativeInstruction, buildTransferCheckedInstruction, buildUnwrapNativeInstruction, deriveAssociatedTokenAddress, NATIVE_MINT } from "@/lib/token-instructions";
 import { parseTokenAmount } from "@/lib/token-amounts";
 import { readPreparationBody, RequestSizeError } from "@/lib/preparation-body";
 
@@ -20,11 +20,12 @@ async function readState(marketAddress: PublicKey) {
   const market = decodeMarketAccount(marketAddress, marketInfo);
   if (market.collateralMint !== protocol.collateralMint) throw new Error("Market collateral does not match the protocol.");
   const addresses = deriveAmmAddresses(marketAddress);
-  const poolInfo = await cookieChainConnection.getAccountInfo(addresses.pool, "confirmed");
-  if (!poolInfo) throw new Error("This market does not have an AMM pool yet.");
+  const [poolInfo, accountingInfo] = await cookieChainConnection.getMultipleAccountsInfo([addresses.pool, addresses.accounting], "confirmed");
+  if (!poolInfo || !accountingInfo) throw new Error("This market does not have complete AMM accounting yet.");
   const pool = decodeAmmPool(addresses.pool, poolInfo);
+  const accounting = decodeMarketAccounting(addresses.accounting, marketAddress, accountingInfo);
   if (pool.market !== market.address || pool.creator !== market.creator) throw new Error("Pool identity does not match the market.");
-  return { protocol, market, pool, addresses };
+  return { protocol, market, pool, accounting, addresses };
 }
 
 export async function GET(request: Request) {
@@ -107,9 +108,32 @@ export async function POST(request: Request) {
       if (state.pool.settlementClaimed) return NextResponse.json({ error: "The creator settlement was already claimed." }, { status: 409 });
       instructions.push(buildCreateAssociatedTokenInstruction(creator, collateralMint));
       const ownerFeeRecipient = new PublicKey(state.protocol.ownerFeeRecipient);
-      const ownerFeeCollateral = deriveAssociatedTokenAddress(collateralMint, ownerFeeRecipient);
-      instructions.push(buildCreateAssociatedTokenInstruction(ownerFeeRecipient, collateralMint, user, true));
+      let ownerFeeCollateral = deriveAssociatedTokenAddress(collateralMint, ownerFeeRecipient);
+      const combinedRecipient = ownerFeeRecipient.equals(creator);
+      if (combinedRecipient) {
+        const seed = `cm-owner-fee-${marketAddress.toBase58().slice(0, 19)}`;
+        ownerFeeCollateral = await PublicKey.createWithSeed(creator, seed, TOKEN_PROGRAM_ID);
+        if (await cookieChainConnection.getAccountInfo(ownerFeeCollateral, "confirmed")) throw new Error("Temporary owner-fee account is unexpectedly occupied.");
+        instructions.push(
+          SystemProgram.createAccountWithSeed({
+            fromPubkey: user,
+            newAccountPubkey: ownerFeeCollateral,
+            basePubkey: creator,
+            seed,
+            lamports: await cookieChainConnection.getMinimumBalanceForRentExemption(165),
+            space: 165,
+            programId: TOKEN_PROGRAM_ID,
+          }),
+          buildInitializeTokenAccountInstruction(ownerFeeCollateral, collateralMint, creator),
+        );
+      } else {
+        instructions.push(buildCreateAssociatedTokenInstruction(ownerFeeRecipient, collateralMint, user, true));
+      }
       instructions.push(await buildClaimAmmSettlementInstruction({ market: marketAddress, collateralMint, yesMint, noMint, vault, creatorCollateral, ownerFeeCollateral, creator }));
+      if (combinedRecipient) {
+        if (state.accounting.accruedOwnerFees > BigInt(0)) instructions.push(buildTransferCheckedInstruction(ownerFeeCollateral, collateralMint, creatorCollateral, creator, state.accounting.accruedOwnerFees, state.protocol.collateralDecimals));
+        instructions.push(buildCloseTokenAccountInstruction(ownerFeeCollateral, creator, creator));
+      }
       if (collateralMint.equals(NATIVE_MINT)) instructions.push(buildUnwrapNativeInstruction(creator));
     } else {
       return NextResponse.json({ error: "Choose buy or creator settlement claim." }, { status: 400 });
