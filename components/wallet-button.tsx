@@ -8,7 +8,7 @@ import { formatMarketText } from "@/lib/market-lifecycle";
 import { readApiResponse } from "@/lib/api-response";
 
 export type NightlyAccount = { address: string; chains?: readonly string[] };
-type WalletActivity = { signature: string; slot: number; blockTime: number | null; status: "confirmed" | "failed"; amountBaseUnits: string };
+type WalletActivity = { signature: string; slot: number; blockTime: number | null; status: "confirmed" | "failed"; amountBaseUnits: string; asset: "COOK" | "wrapped COOK"; label?: string };
 type PortfolioPosition = { market: string; question: string; status: string; outcome: string; yes: string; no: string; creatorLiquidity: string; claimable: string };
 type NightlyProvider = {
   solana?: {
@@ -134,11 +134,8 @@ export function WalletButton() {
         <p>Latest activity</p>
         {activity.length ? <ul className="activity-list">{activity.slice(0, 3).map((item) => {
           const amount = BigInt(item.amountBaseUnits);
-          const label = item.status === "failed"
-            ? "Failed · no funds moved"
-            : amount === BigInt(0)
-              ? "Confirmed on-chain"
-              : `${amount > BigInt(0) ? "+" : "−"}${formatTokenAmount(amount < BigInt(0) ? -amount : amount, 9)} COOK`;
+          const amountLabel = amount === BigInt(0) ? "" : ` · ${amount > BigInt(0) ? "+" : "−"}${formatTokenAmount(amount < BigInt(0) ? -amount : amount, 9)} ${item.asset}`;
+          const label = item.label ? `${item.label}${amountLabel}` : `${amount > BigInt(0) ? "+" : "−"}${formatTokenAmount(amount < BigInt(0) ? -amount : amount, 9)} ${item.asset}`;
           const amountClass = item.status === "failed" || amount === BigInt(0) ? undefined : amount > BigInt(0) ? "amount-positive" : "amount-negative";
           return <li key={item.signature}><a href={`${COOKIE_CHAIN.explorerUrl}/tx/${item.signature}`} target="_blank" rel="noreferrer"><strong className={amountClass}>{label}</strong><small>{formatActivityTime(item.blockTime)} UTC</small></a></li>;
         })}</ul> : <small>No activity since the refreshed launch.</small>}

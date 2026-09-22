@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { PublicKey } from "@solana/web3.js";
 import { cookieChainConnection } from "@/lib/cookie-chain";
 import { UI_LAUNCH_UNIX_SECONDS } from "@/lib/ui-launch";
+import { NATIVE_MINT } from "@/lib/token-instructions";
 
 export const dynamic = "force-dynamic";
 
@@ -18,13 +19,26 @@ export async function GET(_request: Request, { params }: { params: Promise<{ add
       activity: signatures.map(({ signature, slot, blockTime, err }, index) => {
         const transaction = transactions[index];
         const walletIndex = transaction?.transaction.message.staticAccountKeys.findIndex((key) => key.equals(publicKey)) ?? -1;
-        const change = walletIndex >= 0 && transaction?.meta ? BigInt(transaction.meta.postBalances[walletIndex]) - BigInt(transaction.meta.preBalances[walletIndex]) : BigInt(0);
+        const nativeChange = walletIndex >= 0 && transaction?.meta ? BigInt(transaction.meta.postBalances[walletIndex]) - BigInt(transaction.meta.preBalances[walletIndex]) : BigInt(0);
+        const tokenAmount = (balance: { owner?: string; mint: string; uiTokenAmount: { amount: string } }) => balance.owner === address && balance.mint === NATIVE_MINT.toBase58() ? BigInt(balance.uiTokenAmount.amount) : BigInt(0);
+        const wrappedBefore = transaction?.meta?.preTokenBalances?.reduce((total, balance) => total + tokenAmount(balance), BigInt(0)) ?? BigInt(0);
+        const wrappedAfter = transaction?.meta?.postTokenBalances?.reduce((total, balance) => total + tokenAmount(balance), BigInt(0)) ?? BigInt(0);
+        const wrappedChange = wrappedAfter - wrappedBefore;
+        const settlement = transaction?.meta?.logMessages?.some((message) => message.includes("Instruction: ClaimAmmSettlement")) ?? false;
+        const amount = nativeChange !== BigInt(0) ? nativeChange : wrappedChange;
+        const label = err
+          ? "Failed · no funds moved"
+          : settlement && amount > BigInt(0)
+            ? wrappedChange > BigInt(0) && nativeChange === BigInt(0) ? "Platform fee received" : "Market settlement claimed"
+            : amount === BigInt(0) ? "Confirmed on-chain" : undefined;
         return {
         signature,
         slot,
         blockTime,
         status: err ? "failed" : "confirmed",
-        amountBaseUnits: change.toString(),
+        amountBaseUnits: amount.toString(),
+        asset: nativeChange === BigInt(0) && wrappedChange !== BigInt(0) ? "wrapped COOK" : "COOK",
+        label,
       }; })
     });
   } catch {
