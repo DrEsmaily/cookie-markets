@@ -6,6 +6,9 @@ CookieMarkets is an on-chain prediction-market protocol and consumer application
 The first live market template focuses on BTC and ETH price outcomes because they are familiar, liquid, and objectively verifiable. The protocol is designed to grow beyond crypto into ecosystem milestones, governance, community forecasts, creator markets, sports, culture, and other events with explicit resolution rules.
 #### [Open the live Cookie.Markets](https://cookie.markets)
 
+[https://x.com/CookieMarkets](https://x.com/CookieMarkets)
+
+
 ## Why it matters
 
 CookieMarkets gives COOK a repeatable role in a real consumer product:
