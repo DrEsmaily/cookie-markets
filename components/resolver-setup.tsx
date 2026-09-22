@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { PublicKey, Transaction } from "@solana/web3.js";
 import { buildUpdateProtocolInstruction } from "@/lib/cookie-markets-program";
 import { cookieChainConnection } from "@/lib/cookie-chain";
+import { COOKIE_CHAIN } from "@/lib/cookie-chain-config";
 import { readApiResponse } from "@/lib/api-response";
 
 const KEEPER = "hNnAqtwMY5HzMsM6BJRJKzmoyNfMg4Q3fp7HFNdwZ7C";
@@ -41,7 +42,7 @@ export function ResolverSetup() {
       const simulation = await cookieChainConnection.simulateTransaction(transaction);
       if (simulation.value.err) throw new Error("Cookie Chain rejected the resolver configuration simulation. Confirm the program upgrade completed first.");
       const serialized = transaction.serialize({ requireAllSignatures: false, verifySignatures: false });
-      const chain = account.chains?.find((value) => value.startsWith("solana:")) as `${string}:${string}` | undefined;
+      const chain = (account.chains?.find((value) => value.startsWith("solana:")) ?? `solana:${COOKIE_CHAIN.genesisHash}`) as `${string}:${string}`;
       const send = wallet.features?.["solana:signAndSendTransaction"] ?? wallet.features?.["standard:signAndSendTransaction"];
       const sign = wallet.features?.["solana:signTransaction"] ?? wallet.features?.["standard:signTransaction"];
       if (send && chain) {

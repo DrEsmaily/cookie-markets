@@ -173,7 +173,7 @@ export function MarketDraftForm() {
       if (mint.equals(NATIVE_MINT)) transaction.add(SystemProgram.transfer({ fromPubkey: creator, toPubkey: creatorCollateral, lamports: BigInt(preview.liquidity) }), buildSyncNativeInstruction(creatorCollateral));
       transaction.add(initialize);
       const serialized = transaction.serialize({ requireAllSignatures: false, verifySignatures: false });
-      const chain = account.chains?.find((value) => value.startsWith("solana:")) as `${string}:${string}` | undefined;
+      const chain = (account.chains?.find((value) => value.startsWith("solana:")) ?? `solana:${COOKIE_CHAIN.genesisHash}`) as `${string}:${string}`;
       const sendFeature = wallet.features?.["solana:signAndSendTransaction"] ?? wallet.features?.["standard:signAndSendTransaction"];
       const signFeature = wallet.features?.["solana:signTransaction"] ?? wallet.features?.["standard:signTransaction"];
       let signature: string;
@@ -183,7 +183,7 @@ export function MarketDraftForm() {
         if (!signed?.length) throw new Error("Nightly did not return a signed transaction.");
         setSubmissionMessage("Signed successfully. Sending the market transaction to Cookie Chain…");
         signature = await cookieChainConnection.sendRawTransaction(signed, { preflightCommitment: "confirmed", maxRetries: 3, skipPreflight: false });
-      } else if (sendFeature && chain) {
+      } else if (sendFeature) {
         const result = await sendFeature.signAndSendTransaction({ account, transaction: serialized, chain, options: { commitment: "confirmed", preflightCommitment: "confirmed", maxRetries: 3 } });
         if (!result[0]?.signature?.length) throw new Error("Nightly did not return a transaction signature.");
         signature = base58Encode(result[0].signature);

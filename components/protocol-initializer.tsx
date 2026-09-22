@@ -66,7 +66,7 @@ export function ProtocolInitializer() {
     setWorking(true); setMessage(undefined);
     try {
       const { wallet, account, transaction } = await buildTransaction();
-      const chain = account.chains?.find((value) => value.startsWith("solana:")) as `${string}:${string}` | undefined;
+      const chain = (account.chains?.find((value) => value.startsWith("solana:")) ?? `solana:${COOKIE_CHAIN.genesisHash}`) as `${string}:${string}`;
       const serialized = transaction.serialize({ requireAllSignatures: false, verifySignatures: false });
       const sendFeature = wallet.features?.["solana:signAndSendTransaction"] ?? wallet.features?.["standard:signAndSendTransaction"];
       const signFeature = wallet.features?.["solana:signTransaction"] ?? wallet.features?.["standard:signTransaction"];
