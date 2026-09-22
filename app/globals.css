@@ -66,10 +66,10 @@ button:disabled { cursor: not-allowed; }
 .back-link { padding: 10px 0; }
 
 .hero { display: grid; grid-template-columns: minmax(0, 1fr); gap: clamp(34px, 5vw, 54px); padding: clamp(58px, 8vw, 92px) 0; }
-.hero-copy { max-width: 920px; }
+.hero-copy { max-width: 920px; margin-inline: auto; text-align: center; }
 .hero-copy h1 { max-width: 920px; font-size: clamp(46px, 6vw, 72px); line-height: 1.03; letter-spacing: -.06em; }
-.hero-copy .lede { max-width: 540px; margin: 28px 0 0; }
-.hero-board { position: relative; width: min(100%, 820px); padding: clamp(22px, 3vw, 32px); overflow: hidden; border: 1px solid #30363a; border-radius: 28px; background: linear-gradient(145deg, #11171a, #0c1114 70%); color: white; box-shadow: 0 28px 70px rgba(24,24,20,.18); }
+.hero-copy .lede { max-width: 720px; margin: 28px auto 0; }
+.hero-board { position: relative; width: min(100%, 820px); margin-inline: auto; padding: clamp(22px, 3vw, 32px); overflow: hidden; border: 1px solid #30363a; border-radius: 28px; background: linear-gradient(145deg, #11171a, #0c1114 70%); color: white; box-shadow: 0 28px 70px rgba(24,24,20,.18); }
 .hero-board::before { position: absolute; content: ""; width: 260px; height: 260px; top: -145px; right: -85px; border-radius: 50%; background: #9dc31b; filter: blur(55px); opacity: .42; }
 .board-heading { position: relative; display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; color: #f1f2ee; font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .23em; }
 .board-heading strong { display: inline-flex; align-items: center; gap: 8px; color: #101416; background: var(--lime); padding: 10px 16px; border-radius: 999px; font-size: 11px; letter-spacing: .12em; }

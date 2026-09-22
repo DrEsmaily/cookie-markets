@@ -12,9 +12,9 @@ export default function Home() {
 
       <section className="hero">
         <div className="hero-copy">
-          <p className="eyebrow">LIVE PREDICTION MARKETS</p>
-          <h1>Bitcoin and Ethereum settle transparently on Cookie Chain.</h1>
-          <p className="lede">Take a clear YES or NO position on the next price move, with verifiable settlement and real COOK payouts.</p>
+          <p className="eyebrow">CRYPTO PREDICTION MARKET</p>
+          <h1>Predict Crypto Trends &amp; Power the Market</h1>
+          <p className="lede">Turn your YES or NO predictions on BTC and ETH into profit, or supply liquidity to earn a continuous share of platform fees. Fast, transparent, and powered by Cookie Chain.</p>
         </div>
         <aside className="hero-board">
           <div className="board-heading"><span>Market prices</span><strong>Live</strong></div>
@@ -34,11 +34,11 @@ export default function Home() {
       <div id="markets"><LiveMarketList /></div>
 
       <section className="how-it-works">
-        <p className="eyebrow">HOW IT WORKS</p>
+        <p className="eyebrow">GET STARTED</p>
         <div className="steps">
-          <div><span>01</span><h3>Choose your view</h3><p>Pick YES or NO on a clearly defined BTC or ETH price question.</p></div>
-          <div><span>02</span><h3>Trade with COOK</h3><p>See the exact price and maximum trade before approving in Nightly.</p></div>
-          <div><span>03</span><h3>Claim the result</h3><p>Markets settle automatically from verified Coinbase minute data.</p></div>
+          <div><span>01</span><h3>Take Your Position</h3><p>Select YES or NO on straightforward BTC and ETH price outcomes.</p></div>
+          <div><span>02</span><h3>Execute Your Trade</h3><p>Review your exact odds and lock in your position seamlessly via your Nightly wallet.</p></div>
+          <div><span>03</span><h3>Collect Your Winnings</h3><p>Markets settle instantly and automatically using verified, minute-by-minute Coinbase data.</p></div>
         </div>
       </section>
       <SiteFooter />

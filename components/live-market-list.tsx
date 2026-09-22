@@ -37,11 +37,11 @@ export function LiveMarketList() {
   const recent = markets.filter((market) => marketLifecycle(market).key !== "open").slice(0, 3);
   return <>
     <section className="market-section" id="live-markets">
-      <div className="section-heading"><div><p className="eyebrow">OPEN NOW</p><h2>Live BTC &amp; ETH markets</h2><p>Trade verified price questions before their exact UTC deadline.</p></div><span className="section-count">{open.length} live</span></div>
-      {open.length ? <div className="market-grid">{open.map((market) => <OnchainMarketCard key={market.address} market={market} decimals={result.collateralDecimals ?? 9} />)}</div> : <div className="empty-market-state"><strong>No market is open right now.</strong><span>Create a BTC or ETH market and become its first liquidity provider.</span><Link className="primary-action" href="/create">Create a market</Link></div>}
+      <div className="section-heading"><div><p className="eyebrow">NOW TRADING</p><h2>Live BTC &amp; ETH Predictions</h2><p>Take your position on active YES/NO markets before the countdown ends.</p></div><span className="section-count">{open.length} Live Markets</span></div>
+      {open.length ? <div className="market-grid">{open.map((market) => <OnchainMarketCard key={market.address} market={market} decimals={result.collateralDecimals ?? 9} />)}</div> : <div className="empty-market-state"><strong>The floor is yours.</strong><span>Launch a new BTC or ETH market, supply the initial liquidity, and collect trading fees!</span><Link className="primary-action" href="/create">Create a market</Link></div>}
     </section>
     <section className="market-section resolved-section">
-      <div className="section-heading"><div><p className="eyebrow">RECENTLY SETTLED</p><h2>Results and settlement</h2><p>Final outcomes appear here with markets that are actively completing verification.</p></div><span className="section-count">Latest {Math.min(recent.length, 3)}</span></div>
+      <div className="section-heading"><div><p className="eyebrow">RESOLVED MARKETS</p><h2>Market Outcomes</h2><p>Track finalized market results and verified on-chain payouts in real time.</p></div><span className="section-count">Showing: Last {Math.min(recent.length, 3)}</span></div>
       {recent.length ? <div className="market-grid">{recent.map((market) => <OnchainMarketCard key={market.address} market={market} decimals={result.collateralDecimals ?? 9} />)}</div> : <div className="empty-market-state compact"><strong>No recent settlement activity.</strong><span>Closed markets will move here while awaiting their final result.</span></div>}
     </section>
   </>;
