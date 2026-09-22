@@ -80,7 +80,7 @@ button:disabled { cursor: not-allowed; }
 .hero-copy { max-width: 920px; margin-inline: auto; text-align: center; }
 .hero-copy h1 { max-width: 920px; font-size: clamp(46px, 6vw, 72px); line-height: 1.03; letter-spacing: -.06em; }
 .hero-copy .lede { max-width: 720px; margin: 28px auto 0; }
-.hero-board { position: relative; width: min(100%, 820px); margin-inline: auto; padding: clamp(28px, 3.5vw, 36px); overflow: hidden; border: 1px solid #30363a; border-radius: 28px; background: linear-gradient(145deg, #11171a, #0c1114 70%); color: white; box-shadow: 0 28px 70px rgba(24,24,20,.18); }
+.hero-board { position: relative; box-sizing: border-box; width: min(100%, 820px); aspect-ratio: 9 / 8; margin-inline: auto; padding: clamp(28px, 3.5vw, 36px); overflow: hidden; border: 1px solid #30363a; border-radius: 28px; background: linear-gradient(145deg, #11171a, #0c1114 70%); color: white; box-shadow: 0 28px 70px rgba(24,24,20,.18); }
 .hero-board::before { position: absolute; content: ""; width: 260px; height: 260px; top: -145px; right: -85px; border-radius: 50%; background: #9dc31b; filter: blur(55px); opacity: .42; }
 .board-heading { position: relative; display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; color: #f1f2ee; font-size: 15px; font-weight: 800; text-transform: uppercase; letter-spacing: .2em; }
 .board-heading strong { display: inline-flex; align-items: center; gap: 9px; color: #101416; background: var(--lime); padding: 12px 19px; border-radius: 999px; font-size: 12px; letter-spacing: .1em; }
@@ -208,8 +208,30 @@ button:disabled { cursor: not-allowed; }
   .hero { padding: 48px 0; }
   .hero-copy h1 { font-size: clamp(50px, 16vw, 72px); }
   .hero-copy .lede { font-size: 17px; }
-  .hero-board { padding: 18px; border-radius: 18px; }
-  .hero-board .live-prices { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hero-board { container-type: inline-size; padding: 3cqi; border-radius: 3cqi; }
+  .board-heading { margin-bottom: 2.4cqi; font-size: 2.2cqi; }
+  .board-heading strong { gap: 1cqi; padding: 1.3cqi 2.2cqi; font-size: 1.7cqi; }
+  .board-heading strong::before { width: 1cqi; height: 1cqi; }
+  .hero-board .live-prices { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.7cqi; }
+  .hero-board .live-price-card { grid-template-columns: 7cqi minmax(0, 1fr); min-height: 22cqi; padding: 2.2cqi; border-radius: 2.2cqi; }
+  .hero-board .asset-icon { width: 6.5cqi; height: 6.5cqi; }
+  .hero-board .asset-pair { font-size: 2.3cqi; }
+  .hero-board .live-prices strong { margin-top: 1.6cqi; font-size: 5cqi; }
+  .hero-board .price-change { gap: .7cqi; margin-top: 1cqi; font-size: 2cqi; }
+  .hero-board .price-sparkline { height: 6cqi; margin-top: 1.2cqi; }
+  .hero-board .live-prices small { padding: .8cqi .6cqi 0; font-size: 2cqi; }
+  .hero-board .settlement-card { min-height: 15cqi; margin-top: 2.2cqi; padding: 2.3cqi; border-radius: 2.2cqi; }
+  .hero-board .settlement-card > div:first-child { gap: 1cqi; }
+  .hero-board .settlement-card span { font-size: 1.8cqi; }
+  .hero-board .settlement-card strong { max-width: none; font-size: 4.2cqi; }
+  .hero-board .settlement-card small { max-width: none; font-size: 1.9cqi; }
+  .hero-board .cookie-stack { position: relative; right: auto; bottom: auto; width: 18cqi; height: 13cqi; flex-basis: 18cqi; }
+  .hero-board .board-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.7cqi; margin-top: 2cqi; }
+  .hero-board .board-facts div { min-height: 10cqi; gap: 1.8cqi; padding: 1.8cqi; border-radius: 2cqi; }
+  .hero-board .board-facts b { width: 6cqi; height: 6cqi; flex-basis: 6cqi; font-size: 3.2cqi; }
+  .hero-board .board-facts strong { font-size: 3.2cqi; }
+  .hero-board .board-facts span { font-size: 1.8cqi; }
+  .hero-board > p { margin: 2cqi .6cqi 0; font-size: 1.8cqi; line-height: 1.35; }
   .market-card { min-height: 285px; padding: 19px; }
   .market-key-stats { grid-template-columns: 1fr; }
   .market-stage { align-items: flex-start; flex-direction: column; }
@@ -220,17 +242,6 @@ button:disabled { cursor: not-allowed; }
 }
 @media (max-width: 520px) {
   .hero-copy h1 { font-size: clamp(38px, 11.5vw, 56px); }
-  .hero-board .live-prices { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-  .hero-board .live-price-card { grid-template-columns: 1fr; min-height: 192px; padding: 16px; }
-  .hero-board .asset-pair { margin-top: 8px; font-size: 12px; }
-  .hero-board .live-prices strong { margin-top: 12px; font-size: clamp(23px, 7.15vw, 32px); }
-  .price-change { gap: 4px; margin-top: 5px; font-size: 11px; }
-  .price-sparkline { height: 46px; margin-top: 12px; }
-  .settlement-card { align-items: flex-start; min-height: 180px; padding: 24px; }
-  .settlement-card strong { max-width: 210px; }
-  .settlement-card small { max-width: 180px; line-height: 1.4; }
-  .cookie-stack { position: absolute; right: 10px; bottom: 10px; width: 140px; height: 108px; }
-  .board-facts { grid-template-columns: 1fr; }
   .create-price-panel .live-prices { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .create-price-panel .live-price-card { grid-template-columns: 28px minmax(0, 1fr); padding: 12px 10px; }
   .create-price-panel .asset-icon { width: 26px; height: 26px; }
