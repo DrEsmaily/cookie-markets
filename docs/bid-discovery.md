@@ -1,4 +1,6 @@
-# Verified buy-order discovery
+# Verified buy-order discovery (experimental venue)
+
+The live product currently routes ordinary users through the AMM. This document covers the repository's lower-level order-book primitives and should not be read as a description of the primary production interface.
 
 `GET /api/protocol?bids=<market-address>` verifies Cookie Chain genesis, the executable protocol, configuration, and market before returning decoded bid orders. Requests containing both `asks` and `bids` are rejected. Invalid market addresses return 400 before contacting the RPC.
 

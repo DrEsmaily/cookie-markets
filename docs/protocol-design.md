@@ -1,69 +1,60 @@
-# CookieMarkets protocol design v0.1
+# CookieMarkets protocol design
 
-This document defines the first implementation target. It is deliberately conservative: binary markets, one collateral asset, explicit resolution rules, and no upgrade or deployment assumptions yet.
+This document describes the deployed protocol. It is an implementation guide, not a substitute for an independent security audit.
 
-## Product choices
+## Product model
 
-- Markets have `Yes`, `No`, and `Invalid` final outcomes.
-- Collateral is an SPL token account selected by an allowlist. Native COOK should be wrapped before it enters program custody so all accounting uses token-program transfers.
-- Complete sets are fully collateralized: one unit of collateral mints one Yes share and one No share. A complete Yes + No pair can be merged back into one unit before resolution.
-- Trading is closed at a fixed timestamp. Shares remain redeemable after resolution.
-- Resolution is restricted to the configured resolver. Production policy must keep creator and resolver control separate; the contract does not prevent the resolver address from also creating a market.
-- Every market commits to immutable question and rules hashes. Full text is stored in the app/indexer and displayed before trading.
+- Markets settle to `Yes`, `No`, or `Invalid`.
+- Native COOK is represented by its native SPL mint while in token-program custody and is unwrapped in supported return flows.
+- A market creator supplies the initial AMM liquidity and becomes that market's liquidity provider.
+- Traders buy whole YES or NO shares. A per-transaction cap limits each AMM purchase to 1% of current pool liquidity.
+- Market questions and resolution rules are immutable SHA-256 commitments, with readable copies published by the application.
+- Supported BTC/ETH templates resolve from Coinbase Exchange's exact preceding completed one-minute candle.
 
-## Accounts and PDA seeds
+## Principal accounts
 
 | Account | Seed | Purpose |
 | --- | --- | --- |
-| Protocol config | `config` | Admin, fee recipient, resolver, approved collateral mint, global limits |
-| Market | `market`, creator, market nonce | Times, hashes, state, resolver, outcome mints, vault |
-| Collateral vault | `vault`, market | Holds collateral backing complete sets |
-| Resolution proposal | `resolution`, market | Proposed outcome, evidence hash, proposer, challenge deadline |
-| User position | ATA for outcome mint | Standard transferable Yes or No share balance |
+| Protocol config | `config` | Admin, resolver, collateral mint, LP fee, owner fee, owner-fee recipient, challenge period |
+| Market | `market`, creator, nonce | Immutable terms, schedule, outcome mints, vault, state, result |
+| Vault | `vault`, market | Holds collateral backing positions, refunds, and deferred fees |
+| AMM pool | `amm_pool`, market | Market creator, liquidity, YES/NO reserves, accrued LP fee, settlement state |
+| Market accounting | `accounting`, market | Invalid-refund liability and accrued owner fees |
+| AMM position | `position`, market, user | Per-user YES/NO shares and exact collateral cost basis |
+| Resolution proposal | `resolution`, market | Proposed outcome, evidence hash, proposer, and challenge data |
 
-No seed should depend on question text. The client generates a market nonce so repeated questions remain possible.
+## Fee policy
 
-## Instructions
+The on-chain `ProtocolConfig` stores independent `liquidity_provider_fee_bps` and `owner_fee_bps` values plus `owner_fee_recipient`. Only the current admin can update those values. `update_protocol` can also transfer administration to a new nonzero public key.
 
-1. `initialize_protocol` creates configuration and fee settings.
-2. `create_market` validates timestamps and text hashes, creates the vault and outcome mints, and starts in `Draft`.
-3. `open_market` permanently freezes market terms and enables complete-set minting.
-4. `split_collateral` transfers collateral into the vault and mints equal Yes and No shares.
-5. `merge_positions` burns equal shares and returns collateral while the market is unresolved.
-6. `lock_market` moves an expired market from `Open` to `Locked` and disables new positions.
-7. `propose_resolution` records Yes, No, or Invalid with an evidence hash.
-8. `challenge_resolution` flags the proposal for the configured resolver/multisig during the challenge window.
-9. `finalize_resolution` records the outcome after the challenge window.
-10. `redeem` burns winning shares and transfers collateral pro rata. Invalid markets let either side redeem at half value per share, preserving one full unit per complete set.
+Every trade quote reads the current configuration. The pool records the LP fee for that market's creator, while market accounting records the platform-owner fee. Fees remain in the market vault during trading. A valid final result releases them through creator settlement; an Invalid result reserves collateral for exact trader refunds and does not distribute the accrued fees.
 
-## State machine
+## AMM trading and accounting
 
-`Draft → Open → Locked → Proposed → Resolved`
+`buy_amm_shares` calculates a checked quote from pool liquidity, reserves, the desired side, and both configured fee rates. It transfers gross collateral to the vault, updates reserves and displayed odds, sends whole outcome shares to the buyer, and records shares held, gross collateral cost, Invalid refund liability, accrued LP fees, and accrued owner fees.
 
-A challenged proposal remains `Proposed` until the resolver replaces or confirms it. A cancelled draft may close only before collateral enters the vault. No instruction can move a resolved market backward.
+This data is authoritative for settlement and refunds. The UI formats values from verified accounts and matching quote logic.
 
-## Resolution model
+## Resolution and claims
 
-The contract uses a designated resolver address, plus a public challenge window. Production multisig operation and its signer threshold are not yet configured or integration-tested. This is simpler to audit than pretending arbitrary real-world facts can be trustlessly derived on-chain. Each proposal includes an evidence hash; durable public evidence storage and display remain release requirements.
+The lifecycle is `Draft → Open → Locked → Proposed → Resolved`.
 
-The resolver must follow the immutable rules hash. `Invalid` is used only when the source is unavailable, the question is ambiguous under its written rules, or the measured event cannot be determined. Future versions can replace the designated resolver with an oracle adapter without changing share custody.
+The configured resolver proposes `Yes`, `No`, or `Invalid` with an evidence hash. The configured challenge period may be zero for immediate finalization or positive for delayed finalization. A resolved market cannot return to an earlier state.
 
-## Invariants
+For YES or NO, winning positions redeem according to the protocol payout and the creator settles the remaining AMM value, accrued LP fee, and platform-owner fee. For Invalid, `refund_invalid_position` burns the requested tracked shares and returns their proportional recorded cost basis. The instruction checks the user's tracked position, market refund liability, and available vault collateral before transferring funds.
 
-- Vault collateral is never less than the unresolved complete-set liability, excluding explicitly accrued fees.
-- Yes and No supply increase by exactly the same amount during a split.
-- A merge burns exactly equal Yes and No amounts.
-- Trading and minting stop at `closes_at`; resolution cannot be proposed before `resolve_after`.
-- Question, rules, collateral mint, close time, and resolution source cannot change after opening.
-- Fees are bounded in basis points and deducted only at documented transfer points.
-- Every token transfer verifies the expected mint, token program, authority, and PDA derivation.
+## Security invariants
 
-## Deferred decisions
+- All arithmetic is checked and amounts are unsigned base units.
+- Every transfer binds the expected mint, authority, token program, PDA, and market.
+- Market terms, schedule, collateral mint, and resolver cannot be changed after creation.
+- Trading stops at the on-chain close timestamp.
+- Aggregate Invalid refunds cannot exceed tracked liability or vault collateral.
+- A user cannot refund more shares or cost basis than recorded for that position.
+- LP fees belong to the creator recorded in that market's pool, not a global LP address.
+- Only the current admin can change protocol configuration or transfer administration.
+- Signing remains with the connected wallet or secured resolver process.
 
-- Exact resolver multisig and signer threshold.
-- Canonical wrapped COOK mint for the first deployment.
-- Both an escrowed order book and funded AMM pools are selected for the product. See the [implementation track](trading-venues.md); execution instructions and liquidity funding remain incomplete.
-- Fee rates and fee split. Current frontend constants are placeholders, not deployed economics.
-- Program upgrade authority and eventual immutability policy.
+## Operational trust and future work
 
-These choices require user approval before live economics, deployment, credentials, or real-wallet signatures are introduced. The checked-in program ID remains a development placeholder.
+The current design uses a designated resolver and committed external evidence. That trust boundary is explicit. Production hardening should add independent review, multisig governance, redundant evidence collection, resolver monitoring, and eventually multi-oracle or decentralized resolution options.

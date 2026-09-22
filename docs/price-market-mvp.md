@@ -1,30 +1,38 @@
-# Real-chain price-market MVP
+# Live price-market MVP
 
-First-release scope: BTC/USD and ETH/USD threshold markets, funded limit offers with direct fills, Nightly-controlled transactions, order/position management, collateral redemption, and evidence-backed resolver settlement. AMM pools and automatic matching are deferred, not required for this release.
+The current product supports real BTC/USD and ETH/USD threshold markets on Cookie Chain. A creator chooses an above/under condition, exact UTC deadline, starting probability, and initial COOK liquidity. Traders buy whole YES or NO shares through Nightly and the AMM updates its odds after each confirmed trade.
 
-The creation form now generates fixed price rules from an asset, positive USD threshold, future close time, and explicitly named dataset/methodology. Local browser time is converted to UTC. The threshold comparison is inclusive (price >= target means YES). Decimal prices use eight-place fixed precision without floating-point rounding. Generated text is hashed through the existing immutable market terms flow. These remain reviewed drafts; editing generated terms creates different hashes, and the contract does not enforce this template as a market type.
+## Settlement template
 
-The evidence window accepts observations at or before settlement, at most 60 seconds old. The latest qualifying observation must be selected from the approved dataset; a late lookup's current price is not acceptable. Unavailable or ambiguous data and missing timely evidence require INVALID according to the published rules. Evidence is due within 24 hours. The comparison helper checks asset, source identity, timestamp window, and decimal threshold only: it cannot authenticate an API response, prove the observation is the latest, enforce evidence publication, or resolve the contract itself. Those responsibilities require a separately verified collector and named resolver.
+New price markets commit to Coinbase Exchange's `BTC-USD` or `ETH-USD` 60-second candle CLOSE for the exact interval immediately preceding settlement. Settlement times must align to a UTC minute. The collector preserves the provider response and exact decimal token, verifies the market's immutable question and rules hashes, and creates evidence bound to the network, program, market, source, bucket, threshold, and outcome.
 
-The evidence selector chooses the latest qualifying observation from a supplied dataset, rejects mismatched assets/sources and noncanonical timestamps, and returns INVALID for conflicting latest prices, missing observations, or publication more than 24 hours late. Equivalent decimal representations are not conflicts. This is an offline validation helper, not an oracle: completeness, response authenticity, and the actual publication timestamp still require independent verification. It neither collects prices nor submits settlement transactions.
+The resolver worker discovers expired markets, locks trading, loads published terms, requests the committed candle, stores evidence, proposes YES/NO/Invalid, and finalizes according to the on-chain challenge period. It does not substitute a current spot price or another provider when the committed candle is unavailable; such a failure can result in Invalid rather than an invented outcome.
 
-`createPriceEvidenceRecord` produces an exportable JSON artifact and SHA-256 digest binding the network, program, market address, supplied immutable terms hashes, observations, decision, declared publication timestamp, and original provider response. The generated template must match the supplied hashes exactly. Original responses are limited to 1 MiB and hashed separately. Hash the returned serialized bytes as-is; reordering observations or JSON properties changes the digest. The caller must obtain market hashes from a verified on-chain read. This helper does not parse or authenticate the original response, prove observations came from it, publish the artifact, certify its declared timestamp, or authorize a resolver transaction. A matching digest proves content integrity, not provider authenticity or correct settlement.
+## Trading safeguards
 
-Launch gates still open:
+- Initial liquidity is at least 100 COOK in the application flow.
+- Each purchase is capped at 1% of current pool liquidity.
+- Outcome purchases use whole shares.
+- Quotes include the configured LP and platform-owner fees.
+- Maximum total input is enforced on-chain.
+- The frontend simulates prepared transactions before requesting a signature.
+- Market state and timestamps are rechecked by the program at execution.
 
-Persistent public terms can now be published through `POST /api/protocol` with `market`, `question`, `resolutionSource`, and `resolutionRules`. Configure the non-secret `COOKIE_MARKETS_TERMS_DIR` as an absolute directory on a backed-up, persistent filesystem; without it writes are disabled and the bundled registry remains available. Records are scoped by chain/program and canonical market address. The API verifies the actual chain, executable program, config, market collateral and immutable hashes before writing. Anyone may submit matching public text; this grants no market authority. Atomic exclusive file publication prevents overwrites and partial records; existing corruption fails closed. The local store caps records at 1000 and is intended for a single-host MVP with shared persistent storage, not ephemeral serverless deployments or multi-region production. Operators must configure request rate limiting, monitor disk capacity and back up the volume. This stores terms, not settlement evidence. The market deposit form provides a public-terms publication button and refreshes the page after success.
+## Invalid-market accounting
 
-Public Coinbase Exchange candle collection is now available in `collectCoinbasePriceEvidence` without credentials. New markets can opt into `coinbasePriceMarketSpec`: settlement must be minute-aligned, and the reference is the CLOSE of the exact preceding 60-second BTC-USD or ETH-USD bucket, not a spot price or global average. Its observation timestamp denotes bucket end, not the last trade timestamp. Existing market terms are never changed. Collection waits one minute after settlement and rejects requests beyond 24 hours, missing or inconsistent data, source substitution, oversized responses, redirects and HTTP errors. Raw price number tokens are preserved before parsing to avoid floating-point rounding. The collector is not yet connected to market creation, durable publication or resolver submission. Coinbase warns historical data may be incomplete; do not silently replace a missing candle. Provider data revisions and publication proof still require operational policy. Reference: https://docs.cdp.coinbase.com/api-reference/exchange-api/rest-api/products/get-product-candles
+The AMM records each wallet's YES/NO share balance and collateral cost basis. If a market resolves Invalid, each side is refunded from its recorded cost basis rather than a fixed amount per share. Partial refunds are proportional to tracked shares and cost. The contract enforces both market-wide refund liability and available-vault checks, so total refunds cannot exceed reserved collateral.
 
-`GET /api/protocol?position=<market>&user=<wallet>` verifies the chain, protocol, market collateral and associated SPL token account custody before returning full-width collateral/YES/NO balances. Missing associated accounts return zero; malformed or frozen accounts fail closed. The market screen offers a manual holdings refresh. Snapshots exclude native currency, non-associated accounts and order escrow; they are not payout quotes and must be refreshed after changing wallets.
+Accrued LP and owner fees are not distributed for an Invalid result. The UI displays the position, attributable amount, refundable amount, and claimed state from verified on-chain accounting.
 
-- Select and verify a data provider with suitable historical/timestamped access, licensing, and outage policy. CoinMarketCap is a candidate, not an already connected source.
-- Bid API simulation/review is implemented through `POST /api/orders/prepare` with `orderType: "bid"` (omission retains existing asks). Placement quotes use the verified protocol fee rate and may explicitly wrap native collateral; fills require decimal `minimumProceeds` and cannot wrap native funds. Both placement/fills verify exact readable terms and simulate the unsigned transaction. Cancellation remains maker-only without a terms or open-market requirement. Buy/sell book selection is available on the market review screen. Signing/submission remains disabled.
-- Complete explicit wallet signing/submission/confirmation, positions/open orders, and settlement controls.
-- Configure and back up persistent public-terms storage, and complete durable settlement-evidence publication with independently verifiable timing.
-- Execute full-flow validator and browser tests, security review, and production authority/operational safeguards.
-- Obtain explicit deployment approval and user-controlled real-chain signatures. Passing local tests is not proof of deployment or live operation.
+## Application services
 
-No provider credentials, real wallet signatures, deployment, or liquidity funding are used by the template implementation.
+- `POST /api/protocol` publishes verified terms and collects settlement evidence.
+- `GET /api/protocol?markets=true` discovers verified on-chain markets.
+- `GET /api/protocol?position=<market>&user=<wallet>` returns verified balances and tracked AMM position data.
+- `scripts/market-keeper.mjs --watch` provides continuous automatic settlement.
 
-The creation form now defaults to the explicit Coinbase candle methodology, with a custom-dataset option. `POST /api/protocol` with `action: "collect-price-evidence"`, `market`, `asset`, `targetUsd`, and canonical UTC `settlesAt` verifies the actual market's hashes and close/resolution schedule before retrieval. The verified market screen collects and downloads exact evidence JSON with an integrity digest. Contrary to the earlier collector-only status above, creation/review integration is now present; durable evidence publication and resolver submission remain unfinished. The artifact's `publishedAt` field is a declared collection timestamp here, not certification that evidence was publicly published. Downloading does not fulfill the public evidence deadline.
+Persistent terms and evidence storage must use a backed-up `COOKIE_MARKETS_TERMS_DIR`. The Docker deployment uses a named volume. The resolver keypair is an operational secret and is never part of the image or repository.
+
+## Current boundaries
+
+The MVP has a deployed program and uses real COOK. It still requires an independent security audit, continued production monitoring, resolver redundancy, and stronger governance before it should be treated as mature financial infrastructure. Coinbase data availability and the designated resolver remain explicit external dependencies.
