@@ -134,7 +134,14 @@ Near-term priorities include independent security review, redundant resolver ope
 
 ## Security notice
 
-The product uses a real deployed program and real COOK, but it has not received an independent external security audit. Use limited amounts while the protocol accumulates production history. No private key, seed phrase, wallet export, funded credential, or resolver secret belongs in this repository, an issue, a pull request, or a support message.
+The product uses a real deployed program and real COOK, but it has not received an independent external security audit. Use limited amounts while the protocol accumulates production history. 
+
+## License & Copyright
+
+© 2026 DrEsmaily. All rights reserved.
+You are free to study, modify, extend, and use this project for personal, educational, research, testing, and non-commercial development purposes.
+Commercial use is not permitted without prior authorization. This includes using the project, in whole or in part, to generate revenue, provide paid services, operate a commercial product, resell or sublicense the software, or include it in a revenue-generating application or service.
+For any commercial use, a separate commercial license or written permission from DrEsmaily is required.
 
 ---
 
