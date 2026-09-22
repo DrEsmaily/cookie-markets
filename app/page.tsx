@@ -12,15 +12,22 @@ export default function Home() {
 
       <section className="hero">
         <div className="hero-copy">
-          <p className="eyebrow">THE CRYPTO PRICE DESK</p>
-          <h1>Trade the next move.</h1>
-          <p className="lede">Take a clear YES or NO position on where Bitcoin and Ethereum will be—then settle transparently on Cookie Chain.</p>
+          <p className="eyebrow">LIVE PREDICTION MARKETS</p>
+          <h1>Bitcoin and Ethereum settle transparently on Cookie Chain.</h1>
+          <p className="lede">Take a clear YES or NO position on the next price move, with verifiable settlement and real COOK payouts.</p>
         </div>
         <aside className="hero-board">
-          <div className="board-heading"><span>Market reference</span><strong>Live</strong></div>
+          <div className="board-heading"><span>Market prices</span><strong>Live</strong></div>
           <LiveAssetPrices />
-          <div className="board-facts"><div><strong>1 COOK</strong><span>per winning share</span></div><div><strong>1%</strong><span>creator fee</span></div><div><strong>24/7</strong><span>on-chain markets</span></div></div>
-          <p>Coinbase reference prices update automatically. Market terms and settlement evidence remain verifiable on-chain.</p>
+          <div className="settlement-card">
+            <div><span>Settlement</span><strong>1 winning share = 1 COOK</strong><small>Settle transparently on Cookie Chain.</small></div>
+            <div className="cookie-stack" aria-hidden="true"><i>🍪</i><i>🍪</i><i>🍪</i></div>
+          </div>
+          <div className="board-facts">
+            <div><b aria-hidden="true">%</b><p><strong>1%</strong><span>creator fee</span></p></div>
+            <div><b aria-hidden="true">◷</b><p><strong>24/7</strong><span>on-chain markets</span></p></div>
+          </div>
+          <p>Prices update automatically. Settlement is verifiable on Cookie Chain.</p>
         </aside>
       </section>
 
