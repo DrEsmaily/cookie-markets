@@ -10,6 +10,7 @@ import { readApiResponse } from "@/lib/api-response";
 import { cookieChainConnection } from "@/lib/cookie-chain";
 import { buildBuyFromAmmInstruction } from "@/lib/cookie-markets-program";
 import { buildCreateAssociatedTokenInstruction, buildSyncNativeInstruction, deriveAssociatedTokenAddress, NATIVE_MINT } from "@/lib/token-instructions";
+import { hidesObsoletePosition } from "@/lib/legacy-market-visibility";
 
 type PoolState = {
   creator: string;
@@ -123,9 +124,10 @@ export function AmmTradePanel({ market }: { market: string }) {
   const noHeld = BigInt(position?.no.amountBaseUnits ?? "0");
   const yesRefund = BigInt(position?.refund?.yesCost ?? "0");
   const noRefund = BigInt(position?.refund?.noCost ?? "0");
-  const walletClaimable = pool.outcome === "yes" ? yesHeld : pool.outcome === "no" ? noHeld : pool.outcome === "invalid" ? (position?.refund ? yesRefund + noRefund : (yesHeld + noHeld) / BigInt(2)) : BigInt(0);
-  const yesCanClaim = pool.status === "resolved" && yesHeld > BigInt(0) && (pool.outcome === "yes" || (pool.outcome === "invalid" && (!position?.refund || yesRefund > BigInt(0))));
-  const noCanClaim = pool.status === "resolved" && noHeld > BigInt(0) && (pool.outcome === "no" || (pool.outcome === "invalid" && (!position?.refund || noRefund > BigInt(0))));
+  const hideObsoleteRefund = hidesObsoletePosition(market) && pool.outcome === "invalid";
+  const walletClaimable = hideObsoleteRefund ? BigInt(0) : pool.outcome === "yes" ? yesHeld : pool.outcome === "no" ? noHeld : pool.outcome === "invalid" ? (position?.refund ? yesRefund + noRefund : (yesHeld + noHeld) / BigInt(2)) : BigInt(0);
+  const yesCanClaim = !hideObsoleteRefund && pool.status === "resolved" && yesHeld > BigInt(0) && (pool.outcome === "yes" || (pool.outcome === "invalid" && (!position?.refund || yesRefund > BigInt(0))));
+  const noCanClaim = !hideObsoleteRefund && pool.status === "resolved" && noHeld > BigInt(0) && (pool.outcome === "no" || (pool.outcome === "invalid" && (!position?.refund || noRefund > BigInt(0))));
   const leadingSide = pool.status === "resolved" && pool.outcome !== "invalid" && pool.outcome !== "unresolved"
     ? pool.outcome
     : pool.yesPercent >= pool.noPercent ? "yes" : "no";
@@ -136,14 +138,14 @@ export function AmmTradePanel({ market }: { market: string }) {
         <button type="button" disabled={!trading} className={`yes ${side === "yes" && trading ? "selected" : ""} ${leadingSide === "yes" ? "leading" : "trailing"}`} onClick={() => setSide("yes")}><span>YES</span><strong>{pool.yesPercent.toFixed(1)}%</strong></button>
         <button type="button" disabled={!trading} className={`no ${side === "no" && trading ? "selected" : ""} ${leadingSide === "no" ? "leading" : "trailing"}`} onClick={() => setSide("no")}><span>NO</span><strong>{pool.noPercent.toFixed(1)}%</strong></button>
       </div>
-      <div className="wallet-position"><span>Your YES <strong>{display(yesHeld.toString(), pool.decimals)}</strong></span><span>Your NO <strong>{display(noHeld.toString(), pool.decimals)}</strong></span><span>Claimable now <strong>{display(walletClaimable.toString(), pool.decimals)} COOK</strong></span></div>
+      {!hideObsoleteRefund ? <div className="wallet-position"><span>Your current YES <strong>{display(yesHeld.toString(), pool.decimals)}</strong></span><span>Your current NO <strong>{display(noHeld.toString(), pool.decimals)}</strong></span><span>Claimable now <strong>{display(walletClaimable.toString(), pool.decimals)} COOK</strong></span></div> : null}
       {trading ? <>
         <label className="amm-amount">Whole {side.toUpperCase()} shares<input inputMode="numeric" value={amount} onChange={(event) => setAmount(event.target.value.replace(/\D/g, ""))} placeholder="5" /></label>
         {quote ? <div className="trade-summary"><span>Base trade cost <strong>{display(quote.netInput.toString(), pool.decimals)} COOK</strong></span><span>Liquidity provider fee ({pool.liquidityProviderFeeBps / 100}%) <strong>{display(quote.liquidityProviderFee.toString(), pool.decimals)} COOK</strong></span><span>Platform fee ({pool.ownerFeeBps / 100}%) <strong>{display(quote.ownerFee.toString(), pool.decimals)} COOK</strong></span><span>Total fee <strong>{display(quote.totalFee.toString(), pool.decimals)} COOK</strong></span><span>Final total to pay <strong>{display(quote.grossInput.toString(), pool.decimals)} COOK</strong></span><span>Potential payout if {side.toUpperCase()} wins <strong>{amount} COOK</strong></span></div> : amount ? <p className="form-error">That whole-share amount exceeds this trade’s current limit.</p> : null}
         <button className="primary-action amm-buy" type="button" disabled={busy || !quote} onClick={() => void execute("buy")}>{busy ? "Checking…" : `Buy ${amount || "0"} ${side.toUpperCase()}`}</button>
         <p className="amm-note">One winning share claims 1 COOK. This market’s liquidity provider receives its LP fee after a valid result. Invalid markets refund the complete recorded payment, including deferred fees.</p>
       </> : pool.status === "resolved" ? <p className="amm-note">Trading is closed. Final outcome: <strong>{pool.outcome}</strong>. {pool.outcome === "invalid" ? position?.refund ? "The exact payment attributed to each position is refundable, including deferred fees." : "This is a legacy market; its original on-chain refund rule applies." : "Each winning share claims 1 COOK."}</p> : <p className="amm-note">Trading is closed. Resolution is in progress; funds remain safely locked until the result is final.</p>}
-      {pool.outcome === "invalid" && position?.refund ? <div className="trade-summary"><span>Position held <strong>YES {display(yesHeld.toString(), pool.decimals)} · NO {display(noHeld.toString(), pool.decimals)}</strong></span><span>Amount originally attributable <strong>{display((yesRefund + noRefund).toString(), pool.decimals)} COOK</strong></span><span>Refundable amount <strong>{display(walletClaimable.toString(), pool.decimals)} COOK</strong></span><span>Final expected return <strong>{display(walletClaimable.toString(), pool.decimals)} COOK</strong></span></div> : null}
+      {!hideObsoleteRefund && pool.outcome === "invalid" && position?.refund ? <div className="trade-summary"><span>Position held <strong>YES {display(yesHeld.toString(), pool.decimals)} · NO {display(noHeld.toString(), pool.decimals)}</strong></span><span>Amount originally attributable <strong>{display((yesRefund + noRefund).toString(), pool.decimals)} COOK</strong></span><span>Refundable amount <strong>{display(walletClaimable.toString(), pool.decimals)} COOK</strong></span><span>Final expected return <strong>{display(walletClaimable.toString(), pool.decimals)} COOK</strong></span></div> : null}
       {yesCanClaim ? <button className="primary-action" type="button" disabled={busy} onClick={() => void execute("claimYes")}>Claim {display((pool.outcome === "invalid" ? (position?.refund ? yesRefund : yesHeld / BigInt(2)) : yesHeld).toString(), pool.decimals)} COOK from YES</button> : null}
       {noCanClaim ? <button className="primary-action" type="button" disabled={busy} onClick={() => void execute("claimNo")}>Claim {display((pool.outcome === "invalid" ? (position?.refund ? noRefund : noHeld / BigInt(2)) : noHeld).toString(), pool.decimals)} COOK from NO</button> : null}
       {creatorCanClaim ? <button className="primary-action" type="button" disabled={busy} onClick={() => void execute("claimCreator")}>Claim {display(pool.creatorClaimable, pool.decimals)} COOK creator settlement</button> : null}

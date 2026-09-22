@@ -132,7 +132,16 @@ export function WalletButton() {
         <p>Your positions</p>
         {portfolio?.positions.length ? <ul className="portfolio-list">{portfolio.positions.map((position) => <li key={position.market}><Link href={`/markets/${position.market}`}><strong>{formatMarketText(position.question)}</strong><small>YES {formatTokenAmount(BigInt(position.yes), portfolio.decimals)} · NO {formatTokenAmount(BigInt(position.no), portfolio.decimals)} · claimable {formatTokenAmount(BigInt(position.claimable), portfolio.decimals)} COOK</small></Link></li>)}</ul> : <small>No active or claimable positions.</small>}
         <p>Latest activity</p>
-        {activity.length ? <ul className="activity-list">{activity.slice(0, 3).map((item) => { const amount = BigInt(item.amountBaseUnits); return <li key={item.signature}><a href={`${COOKIE_CHAIN.explorerUrl}/tx/${item.signature}`} target="_blank" rel="noreferrer"><strong className={amount >= BigInt(0) ? "amount-positive" : "amount-negative"}>{amount >= BigInt(0) ? "+" : "−"}{formatTokenAmount(amount < BigInt(0) ? -amount : amount, 9)} COOK</strong><small>{formatActivityTime(item.blockTime)} UTC</small></a></li>; })}</ul> : <small>No activity since the refreshed launch.</small>}
+        {activity.length ? <ul className="activity-list">{activity.slice(0, 3).map((item) => {
+          const amount = BigInt(item.amountBaseUnits);
+          const label = item.status === "failed"
+            ? "Failed · no funds moved"
+            : amount === BigInt(0)
+              ? "Confirmed on-chain"
+              : `${amount > BigInt(0) ? "+" : "−"}${formatTokenAmount(amount < BigInt(0) ? -amount : amount, 9)} COOK`;
+          const amountClass = item.status === "failed" || amount === BigInt(0) ? undefined : amount > BigInt(0) ? "amount-positive" : "amount-negative";
+          return <li key={item.signature}><a href={`${COOKIE_CHAIN.explorerUrl}/tx/${item.signature}`} target="_blank" rel="noreferrer"><strong className={amountClass}>{label}</strong><small>{formatActivityTime(item.blockTime)} UTC</small></a></li>;
+        })}</ul> : <small>No activity since the refreshed launch.</small>}
       </div> : null}
       {message ? <p className="wallet-message">{message}</p> : null}
     </div>
