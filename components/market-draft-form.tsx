@@ -154,7 +154,7 @@ export function MarketDraftForm() {
     try {
       const wallet = window.nightly?.solana;
       const connect = wallet?.features?.["standard:connect"];
-      if (!wallet || !connect || wallet.genesisHash !== COOKIE_CHAIN.genesisHash) throw new Error("Connect Nightly to Cookie Chain first.");
+      if (!wallet || !connect || (wallet.genesisHash && wallet.genesisHash !== COOKIE_CHAIN.genesisHash)) throw new Error("Connect Nightly to Cookie Chain first.");
       const account = (await connect.connect()).accounts[0];
       if (!account || account.address !== preview.creator) throw new Error("Reconnect the wallet that prepared this market.");
       const creator = new PublicKey(preview.creator);

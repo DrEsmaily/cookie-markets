@@ -92,7 +92,7 @@ export function OrderPreparationForm({ market, terms, tradingAllowed = true }: {
       const wallet = window.nightly?.solana;
       const connect = wallet?.features?.["standard:connect"];
       if (!wallet || !connect) throw new Error("Install Nightly and select Cookie Chain first.");
-      if (wallet.genesisHash !== COOKIE_CHAIN.genesisHash) throw new Error("Select Cookie Chain in Nightly before reviewing a trade.");
+      if (wallet.genesisHash && wallet.genesisHash !== COOKIE_CHAIN.genesisHash) throw new Error("Select Cookie Chain in Nightly before reviewing a trade.");
       const { accounts } = await connect.connect();
       if (!accounts[0]) throw new Error("Nightly did not share an account.");
       const response = await fetch("/api/orders/prepare", {
@@ -101,7 +101,7 @@ export function OrderPreparationForm({ market, terms, tradingAllowed = true }: {
       });
       const result = await readApiResponse<Preparation & { error?: string }>(response, "Trade preparation returned an unreadable response.");
       if (!response.ok || result.error) throw new Error(result.error ?? "Trade preparation failed.");
-      if (wallet.genesisHash !== COOKIE_CHAIN.genesisHash) throw new Error("Wallet network changed. Prepare again.");
+      if (wallet.genesisHash && wallet.genesisHash !== COOKIE_CHAIN.genesisHash) throw new Error("Wallet network changed. Prepare again.");
       setPreparation(result);
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Could not prepare trade."); }
     finally { setIsPreparing(false); }

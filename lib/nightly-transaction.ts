@@ -11,7 +11,7 @@ export async function submitPreparedTransaction(input: {
   const wallet = window.nightly?.solana;
   const connect = wallet?.features?.["standard:connect"];
   if (!wallet || !connect) throw new Error("Install Nightly and select Cookie Chain first.");
-  if (wallet.genesisHash !== COOKIE_CHAIN.genesisHash) throw new Error("Select Cookie Chain in Nightly first.");
+  if (wallet.genesisHash && wallet.genesisHash !== COOKIE_CHAIN.genesisHash) throw new Error("Select Cookie Chain in Nightly first.");
   const account = (await connect.connect()).accounts[0];
   if (!account || account.address !== input.feePayer) throw new Error("Reconnect the wallet that reviewed this transaction.");
 

@@ -9,6 +9,7 @@ import { buildPositionTransactionInstructions } from "@/lib/position-transaction
 import { parseTokenAmount } from "@/lib/token-amounts";
 import { hashHex, hashMarketTerms } from "@/lib/market-terms";
 import { readPreparationBody, RequestSizeError } from "@/lib/preparation-body";
+import { buildBurnCheckedInstruction, buildCloseTokenAccountInstruction } from "@/lib/token-instructions";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,23 @@ export async function POST(request: Request) {
       ? await cookieChainConnection.getAccountInfo(deriveAmmPositionAddress(address, user), "confirmed")
       : null;
     const prepared = await buildPositionTransactionInstructions({ creator: new PublicKey(market.creator), marketNonce: BigInt(market.nonce), collateralMint: new PublicKey(market.collateralMint), user, amount, action: trackedPosition ? "refundInvalid" : action, side: side === "yes" || side === "no" ? side : undefined, wrapNative: body.wrapNative === true });
+    if (action === "redeem" && market.status === "resolved") {
+      const [yesBalance, noBalance] = await Promise.all([
+        cookieChainConnection.getTokenAccountBalance(prepared.userYes, "confirmed"),
+        cookieChainConnection.getTokenAccountBalance(prepared.userNo, "confirmed"),
+      ]);
+      const yes = BigInt(yesBalance.value.amount);
+      const no = BigInt(noBalance.value.amount);
+      if (market.outcome === "yes" && side === "yes" && amount === yes) {
+        if (no > BigInt(0)) prepared.instructions.push(buildBurnCheckedInstruction(prepared.userNo, prepared.noMint, user, no, protocol.collateralDecimals));
+        prepared.instructions.push(buildCloseTokenAccountInstruction(prepared.userYes, user, user), buildCloseTokenAccountInstruction(prepared.userNo, user, user));
+      } else if (market.outcome === "no" && side === "no" && amount === no) {
+        if (yes > BigInt(0)) prepared.instructions.push(buildBurnCheckedInstruction(prepared.userYes, prepared.yesMint, user, yes, protocol.collateralDecimals));
+        prepared.instructions.push(buildCloseTokenAccountInstruction(prepared.userYes, user, user), buildCloseTokenAccountInstruction(prepared.userNo, user, user));
+      } else if (market.outcome === "invalid" && amount === (side === "yes" ? yes : no) && (side === "yes" ? no : yes) === BigInt(0)) {
+        prepared.instructions.push(buildCloseTokenAccountInstruction(prepared.userYes, user, user), buildCloseTokenAccountInstruction(prepared.userNo, user, user));
+      }
+    }
     const latest = await cookieChainConnection.getLatestBlockhashAndContext("confirmed");
     const transaction = new Transaction({ feePayer: user, ...latest.value }).add(...prepared.instructions);
     const message = transaction.compileMessage();
@@ -60,7 +78,7 @@ export async function POST(request: Request) {
       genesisHash: COOKIE_CHAIN.genesisHash, feePayer: user.toBase58(), market: market.address, action, amountBaseUnits: amount.toString(),
       collateralMint: market.collateralMint, userCollateral: prepared.userCollateral.toBase58(), userYes: prepared.userYes.toBase58(), userNo: prepared.userNo.toBase58(),
       feeBaseUnits: fee.value.toString(), blockhash: latest.value.blockhash, lastValidBlockHeight: latest.value.lastValidBlockHeight, simulationSlot: simulation.context.slot,
-      note: "Unsigned simulation only. Fees exclude account-creation rent. Native collateral redemptions are automatically unwrapped before the transaction completes.",
+      note: "Unsigned simulation only. Fees exclude account-creation rent. Native collateral is unwrapped automatically, and completed settled positions remove their obsolete share-token accounts in the same claim.",
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Could not prepare this transaction." }, { status: error instanceof RequestSizeError ? 413 : error instanceof SyntaxError || error instanceof RangeError ? 400 : 503 });

@@ -37,7 +37,7 @@ export function ProtocolInitializer() {
 
   async function buildTransaction() {
     const wallet = window.nightly?.solana;
-    if (!wallet?.features?.["standard:connect"] || wallet.genesisHash !== COOKIE_CHAIN.genesisHash) throw new Error("Connect Nightly to Cookie Chain first.");
+    if (!wallet?.features?.["standard:connect"] || (wallet.genesisHash && wallet.genesisHash !== COOKIE_CHAIN.genesisHash)) throw new Error("Connect Nightly to Cookie Chain first.");
     const { accounts } = await wallet.features["standard:connect"].connect();
     const account = accounts[0];
     if (!account || account.address !== AUTHORITY) throw new Error("Connect the designated CookieMarkets authority wallet.");

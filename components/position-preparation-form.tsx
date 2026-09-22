@@ -27,8 +27,8 @@ export function PositionPreparationForm({ market, terms, depositsAllowed = true 
     setBalances(undefined); setError(undefined); setIsReading(true);
     try {
       const wallet = window.nightly?.solana;
-      if (wallet?.genesisHash !== COOKIE_CHAIN.genesisHash) throw new Error("Select Cookie Chain in Nightly first.");
-      const connected = await wallet.features?.["standard:connect"]?.connect();
+      if (wallet?.genesisHash && wallet.genesisHash !== COOKIE_CHAIN.genesisHash) throw new Error("Select Cookie Chain in Nightly first.");
+      const connected = await wallet?.features?.["standard:connect"]?.connect();
       const user = connected?.accounts[0]?.address;
       if (!user) throw new Error("Nightly did not share an account.");
       const response = await fetch(`/api/protocol?position=${encodeURIComponent(market)}&user=${encodeURIComponent(user)}`, { cache: "no-store", signal: AbortSignal.timeout(15_000) });
@@ -73,7 +73,7 @@ export function PositionPreparationForm({ market, terms, depositsAllowed = true 
       const wallet = window.nightly?.solana;
       const connect = wallet?.features?.["standard:connect"];
       if (!wallet || !connect) throw new Error("Install Nightly and select Cookie Chain first.");
-      if (wallet.genesisHash !== COOKIE_CHAIN.genesisHash) throw new Error("Select Cookie Chain in Nightly. An unknown or different network cannot be used.");
+      if (wallet.genesisHash && wallet.genesisHash !== COOKIE_CHAIN.genesisHash) throw new Error("Select Cookie Chain in Nightly. An unknown or different network cannot be used.");
       const { accounts } = await connect.connect();
       const account = accounts[0];
       if (!account) throw new Error("Nightly did not share an account.");

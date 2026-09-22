@@ -66,6 +66,20 @@ export function buildCloseTokenAccountInstruction(account: PublicKey, destinatio
   });
 }
 
+export function buildBurnCheckedInstruction(account: PublicKey, mint: PublicKey, owner: PublicKey, amount: bigint, decimals: number): TransactionInstruction {
+  const encodedAmount = Buffer.alloc(8);
+  encodedAmount.writeBigUInt64LE(amount);
+  return new TransactionInstruction({
+    programId: TOKEN_PROGRAM_ID,
+    data: Buffer.concat([Buffer.from([15]), encodedAmount, Buffer.from([decimals])]),
+    keys: [
+      { pubkey: account, isWritable: true, isSigner: false },
+      { pubkey: mint, isWritable: true, isSigner: false },
+      { pubkey: owner, isWritable: false, isSigner: true },
+    ],
+  });
+}
+
 export function buildUnwrapNativeInstruction(owner: PublicKey): TransactionInstruction {
   return new TransactionInstruction({
     programId: TOKEN_PROGRAM_ID,

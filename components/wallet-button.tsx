@@ -6,6 +6,10 @@ import { COOKIE_CHAIN } from "@/lib/cookie-chain-config";
 import { formatTokenAmount } from "@/lib/token-amounts";
 import { formatMarketText } from "@/lib/market-lifecycle";
 import { readApiResponse } from "@/lib/api-response";
+import { PublicKey, Transaction } from "@solana/web3.js";
+import { cookieChainConnection } from "@/lib/cookie-chain";
+import { buildUnwrapNativeInstruction } from "@/lib/token-instructions";
+import { submitPreparedTransaction } from "@/lib/nightly-transaction";
 
 export type NightlyAccount = { address: string; chains?: readonly string[] };
 type WalletActivity = { signature: string; slot: number; blockTime: number | null; status: "confirmed" | "failed"; amountBaseUnits: string; asset: "COOK" | "wrapped COOK"; label?: string };
@@ -42,17 +46,20 @@ function formatActivityTime(blockTime: number | null) {
 export function WalletButton() {
   const [address, setAddress] = useState<string>();
   const [balance, setBalance] = useState<number>();
+  const [wrappedBalance, setWrappedBalance] = useState(BigInt(0));
   const [activity, setActivity] = useState<WalletActivity[]>([]);
   const [portfolio, setPortfolio] = useState<{ decimals: number; positions: PortfolioPosition[] }>();
   const [message, setMessage] = useState<string>();
   const [isConnecting, setIsConnecting] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const [cleanupAccounts, setCleanupAccounts] = useState(0);
 
   const loadBalance = useCallback(async (walletAddress: string) => {
     const response = await fetch(`/api/balance/${encodeURIComponent(walletAddress)}`, { cache: "no-store" });
     if (!response.ok) return;
-    const data = await readApiResponse<{ amount: number }>(response, "Wallet balance returned an unreadable response.");
+    const data = await readApiResponse<{ amount: number; wrappedBaseUnits: string }>(response, "Wallet balance returned an unreadable response.");
     setBalance(data.amount);
+    setWrappedBalance(BigInt(data.wrappedBaseUnits));
   }, []);
 
   const loadActivity = useCallback(async (walletAddress: string) => {
@@ -66,6 +73,13 @@ export function WalletButton() {
     const response = await fetch(`/api/portfolio/${encodeURIComponent(walletAddress)}`, { cache: "no-store" });
     if (!response.ok) return;
     setPortfolio(await readApiResponse<{ decimals: number; positions: PortfolioPosition[] }>(response, "Wallet positions returned an unreadable response."));
+  }, []);
+
+  const loadCleanup = useCallback(async (walletAddress: string) => {
+    const response = await fetch(`/api/wallet-cleanup/${encodeURIComponent(walletAddress)}`, { cache: "no-store" });
+    if (!response.ok) return;
+    const data = await readApiResponse<{ accounts: number }>(response, "Legacy-token cleanup returned an unreadable response.");
+    setCleanupAccounts(data.accounts);
   }, []);
 
   const connect = useCallback(async (silent = false) => {
@@ -85,7 +99,7 @@ export function WalletButton() {
         return;
       }
       setAddress(account.address);
-      await Promise.all([loadBalance(account.address), loadActivity(account.address), loadPortfolio(account.address)]);
+      await Promise.all([loadBalance(account.address), loadActivity(account.address), loadPortfolio(account.address), loadCleanup(account.address)]);
       const activeGenesisHash = window.nightly?.solana?.genesisHash;
       if (activeGenesisHash && activeGenesisHash !== COOKIE_CHAIN.genesisHash) {
         setMessage("Nightly is connected, but not to Cookie Chain. Select the Cookie Chain custom network before trading.");
@@ -95,7 +109,7 @@ export function WalletButton() {
     } finally {
       if (!silent) setIsConnecting(false);
     }
-  }, [loadActivity, loadBalance, loadPortfolio]);
+  }, [loadActivity, loadBalance, loadCleanup, loadPortfolio]);
 
   useEffect(() => {
     const silentConnect = window.setTimeout(() => void connect(true), 250);
@@ -112,10 +126,49 @@ export function WalletButton() {
     await window.nightly?.solana?.features?.["standard:disconnect"]?.disconnect();
     setAddress(undefined);
     setBalance(undefined);
+    setWrappedBalance(BigInt(0));
     setActivity([]);
     setPortfolio(undefined);
+    setCleanupAccounts(0);
     setIsOpen(false);
     setMessage(undefined);
+  }
+
+  async function unwrapCook() {
+    if (!address || wrappedBalance <= BigInt(0)) return;
+    setMessage("Preparing wrapped COOK conversion…");
+    try {
+      const owner = new PublicKey(address);
+      const latest = await cookieChainConnection.getLatestBlockhash("confirmed");
+      const transaction = new Transaction({ feePayer: owner, recentBlockhash: latest.blockhash }).add(buildUnwrapNativeInstruction(owner));
+      const simulation = await cookieChainConnection.simulateTransaction(transaction);
+      if (simulation.value.err) throw new Error("Cookie Chain rejected the conversion simulation.");
+      await submitPreparedTransaction({
+        unsignedTransaction: btoa(Array.from(transaction.serialize({ requireAllSignatures: false, verifySignatures: false }), (byte) => String.fromCharCode(byte)).join("")),
+        feePayer: address,
+        blockhash: latest.blockhash,
+        lastValidBlockHeight: latest.lastValidBlockHeight,
+      });
+      await Promise.all([loadBalance(address), loadActivity(address)]);
+      setMessage("Wrapped COOK converted to native COOK.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Wrapped COOK conversion failed.");
+    }
+  }
+
+  async function cleanupLegacyTokens() {
+    if (!address || cleanupAccounts === 0) return;
+    setMessage("Preparing legacy-token cleanup…");
+    try {
+      const response = await fetch(`/api/wallet-cleanup/${encodeURIComponent(address)}`, { cache: "no-store" });
+      const prepared = await readApiResponse<{ accounts: number; unsignedTransaction: string; feePayer: string; blockhash: string; lastValidBlockHeight: number; error?: string }>(response, "Legacy-token cleanup returned an unreadable response.");
+      if (!response.ok || !prepared.unsignedTransaction) throw new Error(prepared.error ?? "No legacy token accounts need cleanup.");
+      await submitPreparedTransaction(prepared);
+      await Promise.all([loadBalance(address), loadActivity(address), loadCleanup(address)]);
+      setMessage("Legacy market tokens removed from this wallet.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Legacy-token cleanup failed.");
+    }
   }
 
   return (
@@ -127,6 +180,8 @@ export function WalletButton() {
       {address && isOpen ? <div className="wallet-panel">
         <div><span>Connected address</span><a href={`${COOKIE_CHAIN.explorerUrl}/address/${address}`} target="_blank" rel="noreferrer"><strong>{shortAddress(address)} ↗</strong></a></div>
         <div><span>Native balance</span><strong>{balance?.toLocaleString(undefined, { maximumFractionDigits: 4 }) ?? "—"} COOK</strong></div>
+        {wrappedBalance > BigInt(0) ? <div><span>Wrapped fees</span><button className="wallet-inline-action" type="button" onClick={() => void unwrapCook()}>Convert {formatTokenAmount(wrappedBalance, 9)} to native COOK</button></div> : null}
+        {cleanupAccounts > 0 ? <div><span>Old market tokens</span><button className="wallet-inline-action" type="button" onClick={() => void cleanupLegacyTokens()}>Remove {cleanupAccounts} unusable token {cleanupAccounts === 1 ? "account" : "accounts"}</button></div> : null}
         <div><span>Creator liquidity locked</span><strong>{portfolio ? formatTokenAmount(portfolio.positions.reduce((total, item) => total + BigInt(item.status === "resolved" ? "0" : item.creatorLiquidity), BigInt(0)), portfolio.decimals) : "—"} COOK</strong></div>
         <div><span>Claimable now</span><strong>{portfolio ? formatTokenAmount(portfolio.positions.reduce((total, item) => total + BigInt(item.claimable), BigInt(0)), portfolio.decimals) : "—"} COOK</strong></div>
         <p>Your positions</p>
