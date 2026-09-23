@@ -32,7 +32,7 @@ export function LiveMarketList() {
   if (!result) return <section className="market-section"><p role="status">Checking Cookie Chain…</p></section>;
   if (result.error) return <section className="market-section"><p role="alert">{result.error}</p></section>;
   if (!result.deployed) return <section className="market-section"><p>The live protocol is unavailable.</p></section>;
-  const markets = [...(result.markets ?? [])].filter((market) => BigInt(market.createdAt) >= UI_LAUNCH_UNIX_SECONDS).sort((first, second) => BigInt(first.createdAt) > BigInt(second.createdAt) ? -1 : 1);
+  const markets = [...(result.markets ?? [])].filter((market) => market.terms && !market.termsError && BigInt(market.createdAt) >= UI_LAUNCH_UNIX_SECONDS).sort((first, second) => BigInt(first.createdAt) > BigInt(second.createdAt) ? -1 : 1);
   const open = markets.filter((market) => marketLifecycle(market).key === "open");
   const recent = markets.filter((market) => marketLifecycle(market).key !== "open").slice(0, 3);
   return <>

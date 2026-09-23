@@ -42,13 +42,14 @@ export async function GET(_: Request, { params }: { params: Promise<{ address: s
         }
       }
       let question = `Market ${market.address.slice(0, 6)}…${market.address.slice(-4)}`;
+      let verifiedTerms = false;
       try {
         const terms = await verifyPublishedMarketTerms(await readPublishedMarketTerms(market.address), market);
-        if (terms) question = terms.question;
+        if (terms) { question = terms.question; verifiedTerms = true; }
       } catch { /* verified address remains usable */ }
-      return { market: market.address, question, status: market.status, outcome: market.outcome, yes: yes.toString(), no: no.toString(), creatorLiquidity: creatorLiquidity.toString(), claimable: claimable.toString(), createdAt: market.createdAt };
+      return { market: market.address, question, status: market.status, outcome: market.outcome, yes: yes.toString(), no: no.toString(), creatorLiquidity: creatorLiquidity.toString(), claimable: claimable.toString(), createdAt: market.createdAt, verifiedTerms };
     }));
-    const visible = positions.filter((position) => !hidesObsoletePosition(position.market) && BigInt(position.createdAt) >= UI_LAUNCH_UNIX_SECONDS && (position.status !== "resolved" || BigInt(position.claimable) > BigInt(0)) && (BigInt(position.yes) > BigInt(0) || BigInt(position.no) > BigInt(0) || BigInt(position.creatorLiquidity) > BigInt(0) || BigInt(position.claimable) > BigInt(0)));
+    const visible = positions.filter((position) => position.verifiedTerms && !hidesObsoletePosition(position.market) && BigInt(position.createdAt) >= UI_LAUNCH_UNIX_SECONDS && (position.status !== "resolved" || BigInt(position.claimable) > BigInt(0)) && (BigInt(position.yes) > BigInt(0) || BigInt(position.no) > BigInt(0) || BigInt(position.creatorLiquidity) > BigInt(0) || BigInt(position.claimable) > BigInt(0)));
     visible.sort((first, second) => Number(BigInt(second.createdAt) - BigInt(first.createdAt)));
     return NextResponse.json({ decimals: protocol.collateralDecimals, positions: visible });
   } catch (error) {

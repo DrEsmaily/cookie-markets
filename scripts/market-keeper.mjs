@@ -35,6 +35,15 @@ async function termsFor(market) {
   try { return JSON.parse(await readFile(file, "utf8")); } catch { return undefined; }
 }
 
+async function verifiedTermsFor(market, data) {
+  const record = await termsFor(market);
+  if (!record || record.market !== market.toBase58() || record.genesisHash !== GENESIS || record.program !== PROGRAM.toBase58()) return undefined;
+  if (typeof record.question !== "string" || typeof record.resolutionSource !== "string" || typeof record.resolutionRules !== "string") return undefined;
+  const questionHash = createHash("sha256").update(record.question.trim()).digest();
+  const rulesHash = createHash("sha256").update(`${record.resolutionSource.trim()}\n${record.resolutionRules.trim()}`).digest();
+  return questionHash.equals(data.subarray(208, 240)) && rulesHash.equals(data.subarray(240, 272)) ? record : undefined;
+}
+
 function parsePriceTerms(terms, closesAt) {
   const match = /^Will (BTC|ETH)\/USD be (above|under) \$([0-9]+(?:\.[0-9]+)?) at (.+)\?$/.exec(terms?.question ?? "");
   if (!match || Date.parse(match[4]) / 1000 !== closesAt) throw new Error("Readable price terms are missing or do not match the settlement time.");
@@ -62,9 +71,8 @@ async function priceEvidence(market, closesAt, terms) {
   return { outcome: yes ? "yes" : "no", evidence: { version: 1, market: market.toBase58(), source: "Coinbase Exchange", product: `${spec.asset}-USD`, bucketStart: new Date(bucket * 1000).toISOString(), settlement: new Date(closesAt * 1000).toISOString(), close, direction: spec.direction, targetUsd: spec.target, outcome: yes ? "yes" : "no", providerUrl: url, originalResponse: raw } };
 }
 
-async function decision(market, closesAt) {
+async function decision(market, closesAt, terms) {
   try {
-    const terms = await termsFor(market);
     return await priceEvidence(market, closesAt, terms);
   } catch (error) {
     return { outcome: "invalid", evidence: { version: 1, market: market.toBase58(), outcome: "invalid", reason: error instanceof Error ? error.message : "Resolution evidence unavailable.", createdAt: new Date().toISOString() } };
@@ -75,8 +83,8 @@ function resolutionAddress(market) {
   return PublicKey.findProgramAddressSync([Buffer.from("resolution"), market.toBuffer()], PROGRAM)[0];
 }
 
-async function settle(resolver, market, creator, nonce, closesAt) {
-  const result = await decision(market, closesAt);
+async function settle(resolver, market, creator, nonce, closesAt, terms) {
+  const result = await decision(market, closesAt, terms);
   const serialized = Buffer.from(JSON.stringify(result.evidence));
   const evidenceHash = createHash("sha256").update(serialized).digest();
   await mkdir(EVIDENCE_ROOT, { recursive: true });
@@ -104,7 +112,9 @@ async function runOnce() {
     const closesAt = Number(data.readBigInt64LE(272));
     const resolveAfter = Number(data.readBigInt64LE(280));
     if (status !== 1 || now < closesAt || now < resolveAfter) continue;
-    await settle(resolver, pubkey, marketKey(data, 8), data.readBigUInt64LE(40), closesAt);
+    const terms = await verifiedTermsFor(pubkey, data);
+    if (!terms) { console.warn(JSON.stringify({ market: pubkey.toBase58(), skipped: "verified production terms unavailable" })); continue; }
+    await settle(resolver, pubkey, marketKey(data, 8), data.readBigUInt64LE(40), closesAt, terms);
   }
 }
 
